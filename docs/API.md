@@ -1,0 +1,403 @@
+# API
+
+Everything takes its parameters by keyword and returns a `Mesh`. There are no
+callbacks and no state to set beforehand: what a shape is, is what you passed in.
+
+**Angles are radians. Lengths are in whatever unit your world uses.**
+
+## How a sweep is built
+
+```mermaid
+flowchart TD
+    C["contour<br/><i>(N, 2)</i>"] --> S
+    P["path<br/><i>(M, 3)</i>"] --> F["frames<br/><i>right, up, forward<br/>at every path point</i>"]
+    F --> S["stations<br/><i>the contour placed in 3D,<br/>once per ring</i>"]
+    J["join style"] --> S
+    S --> T["strips<br/><i>quads between<br/>consecutive stations</i>"]
+    T --> N["normals<br/><i>facet / edge / path_edge</i>"]
+    N --> U["texture coordinates<br/><i>around, and along</i>"]
+    U --> M["Mesh"]
+    C --> K["caps<br/><i>tessellated as<br/>2D outlines</i>"]
+    K --> M
+
+    style M fill:#2d5a3d,stroke:#5aa876,color:#e8f7ee
+    style S fill:#2d4a63,stroke:#5a8cb8,color:#e8f0f7
+```
+
+A **station** is one ring of contour points placed in 3D. A straight run of path
+gives one station per point; a corner gives one, two or several depending on the
+join style. Consecutive stations are joined by a strip of quads.
+
+## `extrude(contour, path, **options)`
+
+The general sweep. Every other generator is this with its parameters worked out.
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `contour` | — | `(N, 2)` outline, or a list of them for a shape with holes: outer ring counter-clockwise, each hole clockwise |
+| `path` | — | `(M, 3)` points to sweep along; consecutive duplicates are dropped |
+| `contour_normals` | computed | `(N, 2)` outward normals; supply them when you know the true ones |
+| `up` | `(0, 1, 0)` | which way is up for the contour as it travels |
+| `frames` | `'up'` | `'up'` keeps the contour aligned to `up`; `'rmf'` carries it along the path with no reference direction |
+| `join` | `'angle'` | `'raw'`, `'angle'`, `'cut'`, `'round'` |
+| `miter_limit` | `4.0` | how far a mitre may stretch before the corner bevels instead |
+| `round_segments` | `4` | facets in a `'round'` join |
+| `caps` | `True` | `True`, `False`, `'begin'`, `'end'` |
+| `closed_contour` | `True` | whether the outline's last point joins its first |
+| `closed_path` | `False` | whether the path loops, giving a shape with no ends |
+| `normals` | `'edge'` | `'facet'`, `'edge'`, `'path_edge'` |
+| `texture` | `'normalized'` | `'normalized'` (0..1), `'arc_length'` (model units), one of the twelve generated modes below, or `None` |
+| `scale` | `1` | contour size: one number, an `(x, y)` pair, or one of either per path point |
+| `twist` | `0` | rotation about the path in radians, one value or one per point |
+| `color` | none | vertex colour, `(r, g, b)` or `(r, g, b, a)`, one or one per point |
+| `cap_min_angle`, `cap_max_area` | none | refine the end caps |
+| `name` | none | a name for the mesh |
+
+### Frames: `'up'` versus `'rmf'`
+
+`'up'` keeps each frame's up as near one fixed direction as it can. Simple and
+predictable, and what you want for anything with a real up — a road, a railing,
+an extruded sign. Its failure is built in: where the path runs *parallel* to the
+reference direction there is nothing left to align to, and `extrude` raises
+rather than producing a frame that spins.
+
+`'rmf'` carries each frame from the one before it by the smallest rotation that
+turns the old direction onto the new one. There is no reference direction, so
+there is no direction that breaks it, and the contour never spins about the path
+except where the path itself twists. Use it for a cable, a knot, a loop, or any
+path that might point anywhere.
+
+### Join styles
+
+![Join styles](images/joins.png)
+
+Clockwise from top left: `raw` (the runs come apart), `angle` (a mitre, the
+default — the diagonal seam is where its two surfaces meet), `round` (an elbow,
+the tube turned through the bend) and `cut` (a bevel, one flat band between two
+square ends). The purple hairpin in the middle is a mitre at a corner sharp
+enough that the limit turns it into a bevel — without one, the outside of a
+nearly-reversed corner stretches away to a spike.
+
+### Texture coordinates
+
+Two families. The **parameter** modes describe the sweep itself:
+`'normalized'` runs 0..1 around the contour and along the path, and
+`'arc_length'` uses model units for both so a texture tiles at a fixed size
+however long the extrusion is.
+
+![Parameter texture modes](images/fig_texture_parameter.png)
+
+*The same checkerboard on six sweeps. A tube under `normalized` and under
+`arc_length` — the second repeats at a fixed size rather than stretching to the
+length; an elbow, where the checks follow the bend; a lathe, a screw, and a
+VRML97 `Extrusion`. Where the squares stretch is where the mapping stretches.*
+
+The **generated** modes are the twelve the GLE tubing library offers, kept so a
+caller porting from it gets the same mapping. Each combines one of four inputs
+with one of three projections:
+
+| | after scale/twist | before scale/twist |
+|---|---|---|
+| the vertex | `vertex_flat`, `vertex_cyl`, `vertex_sph` | `vertex_model_flat`, `vertex_model_cyl`, `vertex_model_sph` |
+| the surface normal | `normal_flat`, `normal_cyl`, `normal_sph` | `normal_model_flat`, `normal_model_cyl`, `normal_model_sph` |
+
+| projection | u | v |
+|---|---|---|
+| `flat` | the input's x | distance along the path |
+| `cyl` | ¾ − atan2(y, x) / 2π | distance along the path |
+| `sph` | ¾ − atan2(y, x) / 2π | 1 − arccos(z / ‖p‖) / π |
+
+Coordinates are read in the **segment's own frame**, where the contour lies in
+the x-y plane and the path runs along −z, so `z` is the negative of the distance
+travelled. The `model` variants read the contour *before* its per-point scale
+and twist, which keeps a texture still on a shape that tapers or turns as it is
+swept instead of letting it slide as the section changes.
+
+![The twelve generated modes](images/fig_texture_modes.png)
+
+*All twelve on one tube, reading left to right and top to bottom in the order
+listed above. Two come out plain: `normal_sph` and `normal_model_sph` give a
+constant v on a straight tube, because its normals all lie in the contour plane,
+so the whole surface samples one row of the texture. That is what those modes
+do, and why they are for swept balls and elbows rather than for pipes.*
+
+![Textured end caps](images/fig_texture_caps.png)
+
+*End caps are mapped from the outline's own bounding box, so a texture lies flat
+across the face whatever its shape: a round cap, a square one, a star, and one
+with a hole in it. The last two are the same star refined by area and by angle —
+refinement adds vertices but does not move the mapping.*
+
+These formulae were established by measuring what GLE emits, not by reading its
+source — see [GLE-PARITY.md](GLE-PARITY.md) and
+[SPEC-GLE-GEOMETRY.md](../specs/SPEC-GLE-GEOMETRY.md). Two things to know:
+
+- **u may fall outside 0..1.** The angular modes land in [0.25, 1.25), which is
+  where GLE puts them; `GL_REPEAT` handles it, and shifting the range would move
+  the mapping relative to GLE's.
+- **The seam is a step, not a wrap.** GLE emits the contour's seam vertex twice,
+  at u=0 and u=1, so a texture crosses it smoothly. Here that vertex is shared
+  between the quads either side and carries one coordinate, so u steps back
+  across the seam. Use a parameter mode where that matters.
+
+### Contours
+
+![Contour builders](images/fig_contours.png)
+
+*The built-in outlines, each swept along the same straight path so only the
+contour differs: `circle` with 6 and with 24 sides, `rectangle`,
+`rounded_rectangle`, and `star` with 5 points and with 8 blunter ones.*
+
+### Caps
+
+![Caps](images/fig_caps.png)
+
+*Top: `caps=True`, `caps=False` (you can see through it), and a contour with a
+hole — the cap has the hole in it, because caps are tessellated rather than
+fanned. Bottom: `closed_contour=False`, which makes a sheet with no inside and
+therefore no cap at all; then the same star-section cap refined to
+`cap_max_area` of 0.004 and of 0.05.*
+
+### Scale, twist and colour
+
+![Scale and twist](images/fig_scale_twist.png)
+
+*All on the same straight path, so only the per-point parameters differ. Top: no
+options; `scale` from 1 down to 0.3; and a `scale` whose x and y differ, so the
+section changes proportions as it travels. Bottom: `twist` to π/2; twist and
+taper together; and a per-point `color`.*
+
+### Normal modes
+
+A normal mode moves no vertex. It decides only which way the surface is said to
+face, and therefore what it looks like under a light.
+
+![Normal modes](images/normals.png)
+
+*Left to right in each row: `facet`, `edge`, `path_edge`. Top, a hexagonal tube
+— `facet` gives six flat faces and six hard edges, `edge` blends them so a
+six-sided tube shades like a cylinder while its silhouette stays a hexagon, and
+on a straight run `path_edge` has nothing further to smooth. Bottom, a round
+tube round a corner — `facet` reads as a stack of rings, `edge` stays smooth
+around the tube and creased at the corner, and `path_edge` rounds the corner off
+visually as well.*
+
+| Mode | Surface | Reach for it when |
+|---|---|---|
+| `facet` | every face flat, every edge hard | the facets are the point — a hex bolt, a crystal, a cut gem |
+| `edge` | smooth around the contour, creased across each ring | a hexagonal tube that should shade like a cylinder; a mitred pipe joint whose corner should stay a corner |
+| `path_edge` | smooth both ways | anything bending smoothly — a cable, a hose, a handrail |
+
+**`edge` is the default and usually the right answer**: it keeps the outline's
+curves smooth and the path's corners sharp, which is what most swept shapes
+mean. Run `tests/extrusions_normals.py` in OpenGLContext to compare them.
+
+## Rotational sweeps
+
+![Lathe parameters](images/fig_lathe.png)
+
+*What each of a lathe's parameters does, on one square section. Top:
+`sweep_angle` of π and of 2π, then `delta_z=0.6` over two turns — a rising coil.
+Bottom: `delta_radius=0.4`, which spirals outward instead; `sides=6`, a
+hexagonal ring; and `sides=48`, a smooth one.*
+
+`lathe` and `spiral` both carry a contour around the z axis. The difference is
+what the contour's own plane does on the way, and it is visible the moment the
+sweep climbs:
+
+| | `lathe` | `spiral` |
+|---|---|---|
+| The contour's plane | stays **radial** — always contains the z axis | stays **square to the path** — tilts with the climb |
+| Every cross-section at a constant angle is | the contour, undistorted | a stretched contour |
+| Every cross-section across the sweep is | a sheared contour | the contour, undistorted |
+| So it is the shape of | a screw thread, a spiral ramp | a coiled spring, a wound cable |
+
+![Lathe against spiral](images/fig_spiral.png)
+
+*The same parameters both ways, as the climb steepens. Top row `lathe`, bottom
+row `spiral`; left to right `delta_z` of 0, 0.5 and 1.4 over one turn. Flat, the
+two are identical. The steeper the climb, the further apart they get: the lathe's
+section stays upright while the spiral's tilts with the path.*
+
+For a flat sweep the two are identical. Both read the contour in the **r-z
+plane**: x is distance out from the axis, added to the sweep radius, and y is
+height.
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `start_radius` | `1.0` | distance from the axis at `start_angle` |
+| `delta_radius` | `0.0` | change in that radius per full turn |
+| `start_z` | `0.0` | height at `start_angle` |
+| `delta_z` | `0.0` | rise per full turn — the pitch |
+| `start_angle` | `0.0` | where it begins |
+| `sweep_angle` | `2π` | how far it goes; may exceed a turn |
+| `sides` | `20` | facets per full turn |
+| `caps` | `'auto'` | cap the cut ends unless the sweep closes on itself |
+| `mitre` | `True` (lathe) | stretch each ring so consecutive facets meet cleanly |
+
+`helicoid(section_radius, …)` is `lathe` of a circle; `toroid(section_radius, …)`
+is `spiral` of one, which with the default full turn is a torus.
+
+## `screw(contour, start_z, end_z, twist, …)`
+
+A contour extruded along z while turning. `steps` chooses how many rings; left
+out, enough for a smooth twist are worked out from how much turning there is.
+
+![Screw parameters](images/fig_screw.png)
+
+*Top: `twist` of 0 (a plain bar), π (a half turn) and 6π (a threaded rod), all
+of the same square section over the same length. Bottom: the same twist of 2π
+over a short `start_z`..`end_z` and over a long one — the pitch changes with the
+length, not with the twist — and a five-pointed star section, which is what makes
+an auger.*
+
+## `polycylinder(path, radius, …)` and `polycone(path, radii, …)`
+
+Round tubes along a path — constant radius, or a radius given at every point so
+each segment is a cone frustum. Both take everything `extrude` takes.
+
+![Radius profiles](images/fig_polycone.png)
+
+*What a per-point radius buys you. Top: a constant radius (which is
+`polycylinder`), a taper to nothing, and a barrel. Bottom: a waist, a stepped
+profile, and a taper following a curved path. The path is the same straight line
+in all but the last; only the radii differ.*
+
+## `vrml97_extrusion(cross_section, spine, …)`
+
+VRML97's `Extrusion` node, to ISO/IEC 14772-1:1997 clause 6.23.
+
+![VRML97 extrusions](images/vrml97.png)
+
+The cross-section is read in the **x-z** plane, as the specification writes it,
+and is oriented by the specification's Spine-aligned Cross-section Plane — axes
+taken from the spine's own neighbours rather than from any reference direction.
+A `cross_section` or `spine` whose last point repeats its first is *closed*.
+
+**Wind the cross-section clockwise.** In the x-z plane the outward order is
+clockwise — which is why VRML97's own default cross-section is clockwise there,
+with `ccw` still `TRUE`. The contour builders here wind *counter*-clockwise,
+because that is the outward order in the x-y plane `extrude` sweeps in, so
+reverse one before handing it to this function:
+
+```python
+vrml97_extrusion(cross_section=circle(0.3, 16)[::-1], spine=spine)
+```
+
+A counter-clockwise cross-section is accepted and gives the same solid turned
+inside out — consistently, sides and caps together.
+
+| Parameter | Default |
+|---|---|
+| `scale` | one `(x, y)` for all, or one per spine point; every component positive |
+| `orientation` | axis-angle `(x, y, z, radians)`, one or one per point |
+| `begin_cap`, `end_cap` | `True`; ignored for a closed spine, which has no ends |
+| `ccw` | `True` — which way the surface faces |
+| `crease_angle` | `0.0` — above zero, the surface smooths |
+
+## Curves
+
+![Curves](images/curves.png)
+
+`catmull_rom`, `bezier` and `bspline` produce paths to sweep along; `helix`
+produces the one the rotational sweeps use. Give `tolerance` for **adaptive
+sampling** — the greatest distance the straight line between two samples may
+stray from the true curve — and the samples land where the curvature is rather
+than being spread evenly. Halving it roughly doubles the samples in the curved
+parts and leaves the straight parts alone.
+
+See [CURVES.md](CURVES.md).
+
+## What comes back
+
+`Mesh` holds a list of `Primitive`, each holding NumPy arrays keyed by glTF
+attribute name.
+
+```python
+mesh.primitives[0].positions       # (V, 3) float32, C-contiguous
+mesh.primitives[0].normals         # (V, 3)
+mesh.primitives[0].texcoords       # (V, 2)
+mesh.primitives[0].indices         # (T*3,) uint32
+mesh.primitives[0].attributes      # the same, under their glTF names
+mesh.primitives[0].arrays()        # under a renderer's keyword names
+```
+
+### This is the form OpenGLContext's glTF renderer already works in
+
+A `Primitive` is not merely *glTF-shaped* in the abstract. It is the same
+arrangement of arrays that OpenGLContext's
+[`PBRMesh`](https://github.com/mcfletch/openglcontext) holds — the node its glTF
+loader builds for **every primitive of every `.glb` it loads**. Attribute names,
+component types, index type and memory layout all line up, so a mesh generated
+here and a mesh decoded from a file arrive at the renderer indistinguishable
+from one another:
+
+```python
+from OpenGLContext.scenegraph.pbrmesh import PBRMesh
+
+node = PBRMesh(**mesh.primitives[0].arrays())
+```
+
+`arrays()` exists for exactly that call: it renames the glTF semantics to the
+keywords `PBRMesh.__init__` takes.
+
+| Here | `PBRMesh` keyword |
+|---|---|
+| `POSITION` | `positions` |
+| `NORMAL` | `normals` |
+| `TEXCOORD_0`, `TEXCOORD_1` | `texcoords`, `texcoords1` |
+| `TANGENT` | `tangents` |
+| `COLOR_0` | `colors` |
+| `indices` | `indices` |
+| `mode` | `draw_mode` |
+
+**And nothing is copied.** `PBRMesh` normalises what it is given with
+`asarray(..., float32)` and `ascontiguousarray`, and its indices with
+`asarray(..., uint32)` — every one of which is a no-op on an array that already
+holds that dtype and layout. That is why this library commits to emitting
+C-contiguous `float32` attributes and `uint32` indices rather than whatever
+NumPy happened to produce: the array the generator filled is the array the VBO
+uploads, with no conversion pass in between. OpenGLContext's
+`test_the_arrays_are_handed_over_without_copying` holds it with
+`np.shares_memory`.
+
+If you are not using OpenGLContext, none of this is wasted: those are the types
+a GL vertex buffer wants anyway, so `glBufferData` takes them directly, and so
+does anything else that speaks glTF's vocabulary.
+
+| Method | What it does |
+|---|---|
+| `mesh.validate()` | raise unless every primitive can actually be drawn |
+| `mesh.merged()` | concatenate primitives that share a layout — one draw call |
+| `mesh.welded()` | merge duplicate vertices; a hard edge stays hard |
+| `mesh.transformed(matrix)` | move it, normals through the inverse transpose |
+| `mesh.reversed()` | turn it inside out |
+| `mesh.bounds` | `(minimum, maximum)` corner |
+| `primitive.is_watertight()` | whether the surface is closed |
+| `primitive.signed_volume()` | what it encloses; negative means inside out |
+| `primitive.surface_area()` | total area |
+| `mesh.to_gltf()`, `mesh.to_glb(path)`, `mesh.to_glb_bytes()` | serialise |
+
+And, from `opengl_extrusions.tangents`:
+
+| Function | What it does |
+|---|---|
+| `with_tangents(mesh)` | add glTF `TANGENT`, for normal mapping |
+| `levels_of_detail(generator, levels, **parameters)` | the same shape, progressively coarser |
+| `to_collider(mesh)` | welded positions and indices for a physics engine, plus whether it is solid |
+
+## Errors
+
+| Raised | When |
+|---|---|
+| `SweepError` | a path of fewer than two distinct points; caps asked for where they cannot be built |
+| `FrameError` | a path parallel to `up` under `frames='up'` |
+| `CurveError` | too few control points, a non-positive tolerance |
+| `MeshError` | a mesh that could not be drawn — mismatched attributes, an index out of range |
+| `TriangulationError` | a constraint crossing another constraint |
+| `NonFinitePointError` | a NaN or an infinity anywhere |
+| `ValueError` | everything else malformed; all of the above are subclasses of it or of `RuntimeError` |
+
+Degenerate-but-meaningful input does **not** raise: repeated path points are
+dropped, a zero-radius contour produces a surface with no area, a ring with too
+few points is skipped rather than costing you the other eleven.

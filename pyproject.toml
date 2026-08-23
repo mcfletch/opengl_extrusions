@@ -1,0 +1,94 @@
+[build-system]
+# Cython is a build-time convenience, not a requirement: the accelerator it
+# produces is optional and the package works without it.
+requires = ["setuptools>=77", "wheel", "Cython>=3.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opengl_extrusions"
+version = "0.1.0a1"
+description = "Tubing, extrusion, lathing and polygon tessellation geometry in pure NumPy"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [
+    { name = "Mike C. Fletcher", email = "mcfletch@vrplumber.com" }
+]
+keywords = [
+    "extrusion", "tubing", "lathe", "tessellation", "triangulation",
+    "delaunay", "geometry", "glTF", "numpy", "3D",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+# NumPy is the only dependency. The package imports nothing else.
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+# The GLE capture harness (tools/gle_capture.py) only; never imported by the package.
+gle = ["PyOpenGL>=4.0.0a1", "glfw>=2.0"]
+dev = [
+    "opengl_extrusions[test]",
+    "mypy",
+    "ruff",
+    "tox>=4.0",
+    "Cython>=3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mcfletch/opengl_extrusions"
+Repository = "https://github.com/mcfletch/opengl_extrusions"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+opengl_extrusions = ["py.typed", "*.pyx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B"]
+ignore = [
+    "E501",  # line too long (handled by the formatter)
+    "E741",  # ambiguous variable name
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+ignore_missing_imports = true
+# NumPy's shipped stubs type array arithmetic as ``Any``, so ``warn_return_any``
+# fires on nearly every function here that returns an array -- burying the real
+# type errors it would otherwise find. Every other check stays on.
+warn_return_any = false
+
+[tool.tox]
+# Both paths are tested everywhere: the compiled predicates where they built,
+# and the pure ones under the environment switch, since the two must agree.
+env_list = ["py310", "py311", "py312", "py313", "py314", "pure"]
+
+[tool.tox.env_run_base]
+extras = ["test"]
+commands = [["pytest", "{posargs:-q}"]]
+
+[tool.tox.env.pure]
+extras = ["test"]
+set_env = {OPENGL_EXTRUSIONS_NO_ACCEL = "1"}
+commands = [["pytest", "{posargs:-q}"]]
