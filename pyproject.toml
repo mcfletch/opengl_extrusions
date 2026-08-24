@@ -21,10 +21,9 @@ authors = [
 ]
 keywords = [
     "extrusion", "tubing", "lathe", "tessellation", "triangulation",
-    "delaunay", "geometry", "glTF", "numpy", "3D",
+    "delaunay", "geometry", "glTF", "numpy", "3D", "CDT",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -39,7 +38,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 
-# NumPy is the only dependency. The package imports nothing else.
 dependencies = [
     "numpy>=1.24",
 ]
@@ -69,10 +67,9 @@ opengl_extrusions = ["py.typed", "*.pyx"]
 
 [tool.pytest.ini_options]
 # ``src`` is on testpaths so that the worked examples in the module docstrings
-# are run: they are the first code a reader meets, and an example that has
-# drifted from the code teaches the drift.
+# are run
 #
-# ``importlib`` import mode is what lets that work against a checkout whose
+# ``importlib`` import mode is what lets doctest work against a checkout whose
 # package is *also* installed non-editably: the default mode refuses to collect
 # a file whose module is already imported from somewhere else. tox installs the
 # built sdist and runs the doctests against that copy instead -- see tox.ini,
@@ -126,10 +123,7 @@ exclude = ["*.md"]
 python_version = "3.12"
 warn_unused_ignores = true
 ignore_missing_imports = true
-# The package ships `py.typed`, which promises downstream checkers that its
-# signatures mean something. Without these, mypy skips the bodies of untyped
-# functions entirely -- so it reported success while every public entry point
-# was unannotated, which misleads a user rather than merely under-serving them.
+# Without these, mypy skips the bodies of untyped functions entirely
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 # NumPy's shipped stubs type array arithmetic as ``Any``, so ``warn_return_any``
