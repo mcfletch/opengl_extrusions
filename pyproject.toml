@@ -141,8 +141,15 @@ warn_return_any = false
 # beside it; .github/workflows/test.yml drives it.
 
 [tool.cibuildwheel]
-# Stable CPython only. A wheel per platform means an ordinary `pip install`
-# gets the compiled predicates without needing a toolchain.
+# Stable CPython only, and cibuildwheel >= 3.1 to build them: 3.0.1 and earlier
+# do not produce cp314 at all with this configuration, and would have skipped it
+# without saying so. The floor is enforced where cibuildwheel is installed, in
+# .github/workflows/release.yml.
+#
+# A wheel per platform means an ordinary `pip install` gets the compiled
+# predicates without needing a toolchain. Free-threaded builds (`cp313t`,
+# `cp314t`) are not produced: `cp314-*` does not match `cp314t-*`, so adding
+# them is a deliberate act rather than something this pattern does by accident.
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 skip = "*-musllinux_i686 *_i686"
 build-frontend = "build"
