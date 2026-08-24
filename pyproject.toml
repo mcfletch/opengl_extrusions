@@ -71,8 +71,14 @@ opengl_extrusions = ["py.typed", "*.pyx"]
 # ``src`` is on testpaths so that the worked examples in the module docstrings
 # are run: they are the first code a reader meets, and an example that has
 # drifted from the code teaches the drift.
+#
+# ``importlib`` import mode is what lets that work against a checkout whose
+# package is *also* installed non-editably: the default mode refuses to collect
+# a file whose module is already imported from somewhere else. tox installs the
+# built sdist and runs the doctests against that copy instead -- see tox.ini,
+# which overrides ``testpaths`` for exactly that reason.
 testpaths = ["tests", "src"]
-addopts = "-ra --doctest-modules"
+addopts = "-ra --doctest-modules --import-mode=importlib"
 
 [tool.ruff]
 line-length = 100
