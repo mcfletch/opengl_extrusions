@@ -5,6 +5,7 @@ import pytest
 
 from opengl_extrusions import (
     circle,
+    extrude,
     helicoid,
     lathe,
     polycone,
@@ -205,6 +206,13 @@ class TestConveniences:
         assert top == pytest.approx(0.1, rel=1e-6)
 
     def test_a_polycone_needs_one_radius_per_point(self):
+        """A genuine length mismatch, not an array of the wrong rank -- which
+        trips a different check."""
+        with pytest.raises(ValueError) as caught:
+            polycone([(0, 0, 0), (0, 0, 1)], [1.0])
+        assert 'one radius per path point' in str(caught.value)
+
+    def test_a_polycone_refuses_radii_that_are_not_one_per_point(self):
         with pytest.raises(ValueError):
             polycone([(0, 0, 0), (0, 0, 1)], [[1.0, 2.0], [3.0, 4.0]])
 
@@ -240,9 +248,16 @@ class TestCurves:
         assert len(fine) > len(coarse)
 
     def test_a_closed_catmull_rom_comes_back_round(self):
+        """It returns to where it started without repeating the point: the last
+        sample is one step short of the first, and the step is the same size as
+        every other."""
         control = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
         curve = catmull_rom(control, samples=8, closed=True)
-        assert np.linalg.norm(curve[0] - curve[-1]) > 0
+        steps = np.linalg.norm(np.diff(np.vstack([curve, curve[:1]]), axis=0), axis=1)
+        assert np.linalg.norm(curve[-1] - curve[0]) == pytest.approx(steps.mean(), rel=0.3)
+        assert not np.allclose(curve[0], curve[-1])
+        open_curve = catmull_rom(control, samples=8, closed=False)
+        assert np.linalg.norm(open_curve[-1] - open_curve[0]) > 0.9
 
     def test_a_bezier_starts_and_ends_at_its_outer_control_points(self):
         control = [(0, 0, 0), (1, 3, 0), (3, 3, 0), (4, 0, 0)]
@@ -298,8 +313,6 @@ class TestCurves:
 
 class TestCurvesFeedingSweeps:
     def test_a_spline_path_can_be_swept(self):
-        from opengl_extrusions import extrude
-
         path = catmull_rom([(0, 0, 0), (2, 1, 0), (4, 0, 1), (6, 2, 1)], tolerance=1e-3)
         mesh = extrude(circle(0.2, 12), path, frames='rmf', caps=True)
         mesh.validate()

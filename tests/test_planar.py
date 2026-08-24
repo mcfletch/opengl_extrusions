@@ -16,6 +16,7 @@ from opengl_extrusions.planar import (
     point_in_polygon,
     polygon_area,
     polygon_orientation,
+    segments_cross,
     winding_at,
 )
 from opengl_extrusions.predicates import NonFinitePointError
@@ -250,10 +251,15 @@ class TestBuildPSLG:
         g = build_pslg([SQUARE, BOWTIE])
         assert all(e[0] != e[1] for e in g.edges)
 
+    def test_ordinary_input_never_needs_the_pass_cap(self):
+        """`MAX_SPLIT_PASSES` is a guard against an endless loop, not a budget
+        the ordinary path spends. A graph that reports itself unsettled has a
+        crossing left in it, and nothing downstream expects one."""
+        for contours in ([SQUARE], [SQUARE, HOLE], [BOWTIE], [BOWTIE, SQUARE, HOLE]):
+            assert build_pslg(contours).settled, contours
+
     def test_edges_never_cross_after_construction(self):
         """The point of the whole pass: what comes out is planar."""
-        from opengl_extrusions.planar import segments_cross
-
         g = build_pslg([BOWTIE, SQUARE, HOLE])
         for i in range(len(g.edges)):
             for j in range(i + 1, len(g.edges)):

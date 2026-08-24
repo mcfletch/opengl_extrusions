@@ -276,13 +276,14 @@ class TestGLTF:
     def test_accessors_describe_the_data(self):
         doc = Mesh([quad()]).to_gltf()
         by_name = {a.get('name'): a for a in doc['accessors']}
+        assert set(by_name) == {'POSITION', 'NORMAL', 'TEXCOORD_0', 'indices'}
         position = doc['accessors'][doc['meshes'][0]['primitives'][0]['attributes']['POSITION']]
+        assert position is by_name['POSITION']
         assert position['type'] == 'VEC3'
         assert position['componentType'] == 5126  # FLOAT
         assert position['count'] == 4
         assert position['min'] == [0.0, 0.0, 0.0]
         assert position['max'] == [1.0, 1.0, 0.0]
-        assert by_name is not None
 
     def test_indices_are_an_unsigned_int_accessor(self):
         doc = Mesh([quad()]).to_gltf()

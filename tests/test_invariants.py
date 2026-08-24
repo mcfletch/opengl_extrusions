@@ -9,7 +9,14 @@ region several operations later.
 import numpy as np
 import pytest
 
-from opengl_extrusions import Triangulation, build_pslg, circle, tessellate
+from opengl_extrusions import (
+    Triangulation,
+    build_pslg,
+    circle,
+    convex_hull,
+    polygon_area,
+    tessellate,
+)
 from opengl_extrusions.cdt import TriangulationError
 from opengl_extrusions.planar import MAX_SPLIT_PASSES
 
@@ -95,6 +102,70 @@ class TestSegmentBookkeeping:
         assert all(t._tri[made] is not None for made in t._last_split)
         # And it put the record down again rather than leaving it accumulating.
         assert t._created is None
+
+
+class TestTheMeshCoversItsHull:
+    """A triangulation of a point set is a triangulation of its convex hull.
+
+    The construction starts from one enormous triangle and deletes it again at
+    the end, and how large "enormous" is decides how much of the hull survives:
+    a sliver's circumcircle grows as the square of its base over its height, so
+    for a thin enough triangle *any* fixed multiple of the input's size is
+    inside it, the Delaunay answer prefers the super vertex, and deleting it
+    takes the sliver away with it.
+    """
+
+    @staticmethod
+    def _area(points, triangles):
+        if not len(triangles):
+            return 0.0
+        a, b, c = (points[triangles[:, i]] for i in range(3))
+        u, v = b - a, c - a
+        return float(0.5 * np.abs(u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]).sum())
+
+    #: A quadrilateral with three nearly collinear vertices. The sliver they
+    #: make has a circumradius some thousands of times the shape's own size.
+    SLIVER = np.array(
+        [
+            (0.75, 0.0),
+            (1.0, 0.0),
+            (0.5, 5e-6),
+            (-0.653643621, -0.756802495),
+        ]
+    )
+
+    def test_a_sliver_is_not_lost_with_the_super_triangle(self):
+        t = Triangulation(self.SLIVER)
+        hull = t.points[convex_hull(self.SLIVER)]
+        expected = abs(polygon_area(hull))
+        assert self._area(t.points, t.triangles) == pytest.approx(expected, rel=1e-9)
+
+    def test_a_constraint_across_the_sliver_can_be_inserted(self):
+        """The gap is what makes the constraint impossible: there is no triangle
+        at one end facing the other."""
+        graph = build_pslg([self.SLIVER])
+        mesh = Triangulation.from_pslg(graph)
+        mesh.check_consistency()
+
+    def test_tessellating_the_sliver_gives_back_its_area(self):
+        result = tessellate([self.SLIVER])
+        area = sum(abs(polygon_area(result.points[tri])) for tri in result.triangles)
+        assert area == pytest.approx(abs(polygon_area(self.SLIVER)), rel=1e-9)
+
+    @pytest.mark.parametrize('thinness', [1e-4, 1e-6, 1e-9, 1e-12])
+    def test_however_thin_the_sliver_is(self, thinness):
+        points = np.array([(0.0, 0.0), (1.0, 0.0), (0.5, thinness), (0.5, -1.0)])
+        t = Triangulation(points)
+        hull = t.points[convex_hull(points)]
+        assert self._area(t.points, t.triangles) == pytest.approx(abs(polygon_area(hull)), rel=1e-9)
+
+    def test_an_ordinary_point_set_is_unaffected(self):
+        rng = np.random.default_rng(7)
+        points = rng.uniform(-1, 1, size=(40, 2))
+        t = Triangulation(points)
+        hull = t.points[convex_hull(points)]
+        assert self._area(t.points, t.triangles) == pytest.approx(abs(polygon_area(hull)), rel=1e-9)
+        assert t.is_delaunay()
 
 
 class TestConstraintsWithoutRecursion:

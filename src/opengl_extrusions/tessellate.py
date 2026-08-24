@@ -37,10 +37,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from opengl_extrusions.planar import PSLG
-from opengl_extrusions.types import Contours
 from opengl_extrusions.cdt import WINDING_RULES, Triangulation
-from opengl_extrusions.planar import build_pslg
+from opengl_extrusions.planar import PSLG, build_pslg
+from opengl_extrusions.types import Contours
 
 __all__ = ['tessellate', 'Tessellation', 'METHODS']
 

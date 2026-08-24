@@ -11,7 +11,7 @@ import contextlib
 import numpy as np
 import pytest
 
-from opengl_extrusions.cdt import Triangulation, TriangulationError
+from opengl_extrusions.cdt import Triangulation, TriangulationError, convex_hull
 from opengl_extrusions.planar import build_pslg, polygon_area
 from opengl_extrusions.predicates import orient2d
 
@@ -50,8 +50,6 @@ class TestDelaunay:
     ):
         pts = random_points(40, seed=3)
         t = Triangulation(pts)
-        from opengl_extrusions.cdt import convex_hull
-
         hull = convex_hull(pts)
         assert triangle_areas(pts, t.triangles).sum() == pytest.approx(
             abs(polygon_area(pts[hull])), rel=1e-12
@@ -60,8 +58,6 @@ class TestDelaunay:
     def test_triangle_count_follows_eulers_formula(self):
         pts = random_points(30, seed=11)
         t = Triangulation(pts)
-        from opengl_extrusions.cdt import convex_hull
-
         hull = len(convex_hull(pts))
         assert len(t.triangles) == 2 * len(pts) - 2 - hull
 
@@ -151,7 +147,7 @@ class TestConstraints:
         assert len(t.triangles) == before
         assert t.has_edge(0, 1)
 
-    def test_many_crossing_constraints_all_survive(self):
+    def test_the_mesh_stays_consistent_through_constraints_that_cannot_all_fit(self):
         ring = np.array(
             [(np.cos(a), np.sin(a)) for a in np.linspace(0, 2 * np.pi, 12, endpoint=False)]
         )

@@ -147,10 +147,12 @@ class TestWindingRules:
         assert total_area(tessellate([SQUARE, SQUARE], winding='nonzero')) == pytest.approx(1.0)
 
     def test_positive_and_negative_rules_select_by_direction(self):
-        clockwise = [(2, 2), (2, 3), (3, 3), (3, 2)]
+        """The two rings have different areas, so swapping the rules would swap
+        the answers -- which is the whole content of the claim."""
+        clockwise = [(2, 2), (2, 4), (4, 4), (4, 2)]
         contours = [SQUARE, clockwise]
         assert total_area(tessellate(contours, winding='positive')) == pytest.approx(1.0)
-        assert total_area(tessellate(contours, winding='negative')) == pytest.approx(1.0)
+        assert total_area(tessellate(contours, winding='negative')) == pytest.approx(4.0)
 
     def test_abs_geq_two_selects_the_doubly_covered_part(self):
         a = [(0, 0), (2, 0), (2, 2), (0, 2)]

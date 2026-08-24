@@ -256,6 +256,101 @@ class Triangulation:
             self._vertex_tri.pop(v, None)
         self._points_cache = None
         self._last = self._any_triangle()
+        self._fill_to_hull()
+
+    def _fill_to_hull(self) -> None:
+        """Add back whatever the super triangle took with it.
+
+        A triangulation of a point set is a triangulation of its convex hull,
+        and deleting the super triangle can leave less than that. A sliver's
+        circumradius grows as its base squared over its height, so for a thin
+        enough triangle a super vertex lies inside that circle however far away
+        it was put -- the Delaunay answer then genuinely prefers the super
+        vertex, and the sliver leaves with it. No fixed size for the super
+        triangle avoids this; only filling afterwards does.
+
+        Two things are put back, in this order, because the second needs what
+        the first leaves behind:
+
+        *Cut the notches.* The boundary is walked with the mesh on its left, so a
+        corner that turns clockwise is a notch the hull does not have. Cutting
+        one off adds a triangle and removes a boundary vertex, so the pass ends,
+        and what it ends at is convex.
+
+        *Re-attach what was lost altogether.* A vertex can be left in no triangle
+        at all, which is the same failure one step further on. Fanning it to
+        every boundary edge it can see is the convex hull of the boundary and
+        that vertex -- so the boundary stays convex and the next one can be
+        added the same way.
+        """
+        made = self._cut_reflex_corners()
+        made.extend(self._attach_lost_vertices())
+        if made:
+            self.restore_delaunay(made)
+
+    def _cut_reflex_corners(self) -> list[int]:
+        """Fill every clockwise turn of the boundary, leaving it convex."""
+        following = self._boundary_loop()
+        if len(following) < 3:
+            return []
+        preceding = {v: u for u, v in following.items()}
+        made: list[int] = []
+        corners = list(following)
+        while corners and len(following) > 3:
+            b = corners.pop()
+            a, c = preceding.get(b, -1), following.get(b, -1)
+            if a < 0 or c < 0 or a == c:
+                continue
+            if orient2d(self._pts[a], self._pts[b], self._pts[c]) >= 0:
+                continue
+            made.append(self._add_triangle(a, c, b))
+            del following[b], preceding[b]
+            following[a], preceding[c] = c, a
+            # `a` and `c` are the only corners whose answer can have changed.
+            corners.extend((a, c))
+        return made
+
+    def _attach_lost_vertices(self) -> list[int]:
+        """Bring back any vertex the mesh no longer has a triangle for."""
+        held = {v for verts in self._tri if verts is not None for v in verts}
+        lost = [v for v in range(len(self._pts)) if v not in held]
+        if not lost:
+            return []
+        made: list[int] = []
+        for v in lost:
+            following = self._boundary_loop()
+            if not following:  # pragma: no cover - needs an empty mesh
+                break
+            p = self._pts[v]
+            visible = [
+                (a, b) for a, b in following.items() if orient2d(self._pts[a], self._pts[b], p) < 0
+            ]
+            if not visible:
+                # Inside the boundary rather than beyond it, so the ordinary
+                # insertion knows what to do with it.
+                self._insert_point(v)
+                made.extend(self._last_inserted)
+                continue
+            made.extend(self._add_triangle(b, a, v) for a, b in visible)
+        return made
+
+    def _boundary_loop(self) -> dict[int, int]:
+        """Each boundary vertex mapped to the next one round, mesh on the left.
+
+        An edge with no triangle on its far side is a boundary edge, and its own
+        triangle is on its left -- so following these edges walks the outside of
+        the mesh anticlockwise. A vertex reached by two boundary edges would make
+        this ambiguous; that is a pinched mesh, and the walk is abandoned rather
+        than guessed at.
+        """
+        following: dict[int, int] = {}
+        for (u, v), t in self._edge.items():
+            if self._tri[t] is None or (v, u) in self._edge:
+                continue
+            if u in following:  # pragma: no cover - a pinched boundary only
+                return {}
+            following[u] = v
+        return following
 
     # -- the mesh ---------------------------------------------------------
 
@@ -544,6 +639,12 @@ class Triangulation:
         A point outside the current mesh, or coincident with an existing vertex,
         is not added and the index of the nearest existing vertex is returned
         where one coincides; otherwise -1.
+
+        :raises NonFinitePointError: for a NaN or infinite coordinate.
+        :raises TriangulationError: for a point lying exactly on a constrained
+            edge. Splitting one would leave the constraint as two edges the
+            caller never asked for, so it is refused rather than done quietly;
+            insert the halves yourself if that is what you want.
         """
         p = np.asarray(point, dtype=np.float64)
         if not np.isfinite(p).all():

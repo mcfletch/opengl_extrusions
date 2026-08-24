@@ -73,8 +73,19 @@ def test_asking_a_deleted_triangle_for_its_vertices_is_an_error(mesh):
 
 
 def test_a_vertex_whose_remembered_triangle_died_is_found_again(mesh):
-    """The rotation around a vertex falls back to a scan when its hint is stale."""
-    mesh._vertex_tri[4] = 999999 % max(len(mesh._tri), 1)
+    """The rotation around a vertex falls back to a scan when its hint is stale.
+
+    The hint is left in place: popping it first takes the *missing*-hint branch
+    instead, which is a different piece of code and already covered below.
+    """
+    # Vertex 0 is a corner, so some triangle of the mesh does not touch it.
+    elsewhere = next(t for t in mesh.triangle_indices if 0 not in (mesh._tri[t] or ()))
+    mesh._vertex_tri[0] = elsewhere
+    assert len(mesh._incident_triangles(0)) > 0
+    assert 0 in (mesh._tri[mesh._vertex_tri[0]] or ())
+
+
+def test_a_vertex_with_no_remembered_triangle_is_found_by_scanning(mesh):
     mesh._vertex_tri.pop(4, None)
     assert len(mesh._incident_triangles(4)) > 0
 

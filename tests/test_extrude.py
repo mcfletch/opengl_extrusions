@@ -115,11 +115,21 @@ class TestCaps:
         assert mesh.primitives[0].is_watertight()
 
     def test_the_begin_cap_faces_backward(self):
-        mesh = extrude(circle(1.0, 32), [(0, 0, 0), (0, 0, 2)], caps='begin')
-        p = mesh.primitives[0]
-        at_start = np.isclose(p.positions[:, 2], 0.0)
-        facing = p.normals[at_start]
-        assert (facing[:, 2] <= 1e-6).all()
+        """The *cap's* vertices, not every vertex at z=0.
+
+        The side vertices are there too, and their normal's z is zero, which
+        satisfies any bound of the form "not positive" -- as would a cap normal
+        of (0, 0, 0).
+        """
+        path = [(0, 0, 0), (0, 0, 2)]
+        # `Mesh.merged` concatenates its members' vertex blocks in order and the
+        # tube is the first, so the cap's vertices are the ones the uncapped
+        # sweep does not have.
+        tube = extrude(circle(1.0, 32), path, caps=False).vertex_count
+        p = extrude(circle(1.0, 32), path, caps='begin').primitives[0]
+        facing = p.normals[tube:]
+        assert len(facing) >= 3
+        assert (facing[:, 2] < -0.99).all()
 
     def test_caps_are_refused_for_an_open_contour(self):
         with pytest.raises(SweepError):

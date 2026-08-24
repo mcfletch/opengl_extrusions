@@ -17,6 +17,9 @@ from opengl_extrusions import (
     extrude,
     lathe,
     polycylinder,
+    polygon_orientation,
+    rectangle,
+    star,
     tessellate,
 )
 from opengl_extrusions.cdt import TriangulationError, convex_hull
@@ -163,8 +166,6 @@ class TestPlanarEdges:
         assert winding_at(g, (0, 0)) == 0
 
     def test_a_very_thin_polygon_still_has_an_orientation(self):
-        from opengl_extrusions import polygon_orientation
-
         thin = [(0.0, 0.0), (1.0, 0.0), (1.0, 1e-300)]
         assert polygon_orientation(thin) == 1
 
@@ -182,16 +183,12 @@ class TestContourAndFrameEdges:
         assert len(rounded_rectangle(2, 2, radius=0.5, segments=1)) >= 4
 
     def test_a_star_needs_positive_radii(self):
-        from opengl_extrusions import star
-
         with pytest.raises(ValueError):
             star(5, -1.0, 0.5)
         with pytest.raises(ValueError):
             star(1, 1.0, 0.5)
 
     def test_a_rectangle_needs_a_positive_size(self):
-        from opengl_extrusions import rectangle
-
         with pytest.raises(ValueError):
             rectangle(0.0, 1.0)
 
@@ -296,9 +293,15 @@ class TestGeneratorEdges:
         mesh = lathe(section, contour_normals_2d=normals, sides=16, caps=False)
         assert np.allclose(np.linalg.norm(mesh.primitives[0].normals, axis=1), 1.0, atol=1e-6)
 
-    def test_a_sweep_of_several_contours_gives_several_primitives(self):
-        mesh = extrude([circle(2.0, 8), circle(1.0, 8)[::-1]], [(0, 0, 0), (0, 0, 1)], caps=False)
-        assert mesh.primitives[0].vertex_count > 0
+    def test_a_sweep_of_several_contours_merges_them_into_one_primitive(self):
+        """`sweep` merges whenever there is more than one primitive, so what
+        comes back is a single batch holding both rings -- which is the point of
+        merging, and the opposite of what the name of this test used to say."""
+        two = extrude([circle(2.0, 8), circle(1.0, 8)[::-1]], [(0, 0, 0), (0, 0, 1)], caps=False)
+        one = extrude(circle(2.0, 8), [(0, 0, 0), (0, 0, 1)], caps=False)
+        assert len(two.primitives) == 1
+        assert two.primitives[0].vertex_count == 2 * one.primitives[0].vertex_count
+        assert two.triangle_count == 2 * one.triangle_count
 
     def test_mismatched_contour_normals_are_refused(self):
         with pytest.raises(ValueError):

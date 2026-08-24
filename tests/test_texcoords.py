@@ -75,12 +75,15 @@ class TestThroughASweep:
 
     def test_the_measured_gle_values_come_out_of_a_real_sweep(self):
         """What GLE emitted for this extrusion, mode by mode."""
-        assert swept('vertex_flat')[:, 0].min() == pytest.approx(1.0)
-        assert swept('vertex_flat')[:, 0].max() == pytest.approx(2.0)
-        assert swept('normal_flat')[:, 0].min() == pytest.approx(-1.0)
-        assert swept('normal_flat')[:, 0].max() == pytest.approx(1.0)
-        assert swept('vertex_cyl')[:, 0].min() == pytest.approx(0.6762, abs=1e-4)
-        assert swept('vertex_cyl')[:, 0].max() == pytest.approx(0.75, abs=1e-4)
+        vertex_flat = swept('vertex_flat')
+        assert vertex_flat[:, 0].min() == pytest.approx(1.0)
+        assert vertex_flat[:, 0].max() == pytest.approx(2.0)
+        normal_flat = swept('normal_flat')
+        assert normal_flat[:, 0].min() == pytest.approx(-1.0)
+        assert normal_flat[:, 0].max() == pytest.approx(1.0)
+        vertex_cyl = swept('vertex_cyl')
+        assert vertex_cyl[:, 0].min() == pytest.approx(0.6762, abs=1e-4)
+        assert vertex_cyl[:, 0].max() == pytest.approx(0.75, abs=1e-4)
         assert swept('vertex_sph')[:, 1].min() == pytest.approx(0.1476, abs=1e-4)
 
     def test_v_is_the_distance_travelled_for_flat_and_cylindrical(self):
