@@ -48,7 +48,7 @@ mast = extrude(circle(radius=0.1, sides=16),
 
 ![Swept shapes](docs/images/shapes.png)
 
-*Lathe, spiral, screw, toroid, polycylinder and polycone — every named shape,
+*Lathe, spiral, screw, toroid, polycylinder and polycone — 
 generated here and drawn by OpenGLContext in a core profile.*
 
 ## API Highlights
