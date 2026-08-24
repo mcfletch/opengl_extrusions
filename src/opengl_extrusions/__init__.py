@@ -1,4 +1,4 @@
-"""Tubing, extrusion, lathing and polygon tessellation geometry in pure NumPy.
+"""Tubing, extrusion, lathing and polygon tessellation geometry, as NumPy arrays.
 
 Extrusions, polycones, lathes, screws, spirals, helicoids and toroids, as
 vertex arrays. The caller gets a glTF-shaped mesh back and does what it likes
@@ -10,6 +10,10 @@ with it: render it, weld it, hand it to a physics engine, write it out.
 
 The polygon tessellator the caps are built on is a public API in its own right,
 usable for any 2D outline with holes -- see :func:`tessellate`.
+
+NumPy is the only runtime dependency. The geometric predicates' inner loop is
+additionally compiled where a compiler was available; see
+:data:`opengl_extrusions.predicates.ACCELERATED`.
 """
 from __future__ import annotations
 
@@ -28,9 +32,8 @@ from opengl_extrusions.contours import (
 )
 from opengl_extrusions.frames import path_frames, PathFrames, FrameError
 from opengl_extrusions.sweep import SweepError, JOIN_STYLES, NORMAL_MODES
-from opengl_extrusions.api import extrude
 from opengl_extrusions.shapes import (
-    lathe, spiral, screw, helicoid, toroid, polycylinder, polycone,
+    extrude, lathe, spiral, screw, helicoid, toroid, polycylinder, polycone,
 )
 from opengl_extrusions.vrml97 import vrml97_extrusion, spine_frames
 from opengl_extrusions.tangents import (

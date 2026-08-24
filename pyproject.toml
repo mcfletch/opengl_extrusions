@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "opengl_extrusions"
 version = "0.1.0a1"
-description = "Tubing, extrusion, lathing and polygon tessellation geometry in pure NumPy"
+description = "Tubing, extrusion, lathing and polygon tessellation geometry, as NumPy arrays"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

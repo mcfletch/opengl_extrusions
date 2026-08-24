@@ -97,7 +97,7 @@ def vrml97_extrusion(cross_section=DEFAULT_CROSS_SECTION, spine=DEFAULT_SPINE, *
         is clockwise there. The contour builders in
         :mod:`~opengl_extrusions.contours` wind counter-clockwise, because that
         is the outward order in the ordinary x-y plane that
-        :func:`~opengl_extrusions.api.extrude` sweeps in -- so reverse one
+        :func:`~opengl_extrusions.shapes.extrude` sweeps in -- so reverse one
         before using it here::
 
             vrml97_extrusion(cross_section=circle(0.3, 16)[::-1], spine=spine)

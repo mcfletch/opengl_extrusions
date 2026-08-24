@@ -1,6 +1,6 @@
 # opengl_extrusions
 
-Tubing, extrusion, lathing and polygon tessellation, in pure NumPy.
+Tubing, extrusion, lathing and polygon tessellation, as NumPy arrays.
 
 Give it a 2D outline and a path, and it hands back the vertex arrays for the
 surface that outline sweeps out — positions, normals, texture coordinates,
@@ -68,11 +68,13 @@ See [docs/TESSELLATION.md](docs/TESSELLATION.md).
 pip install opengl_extrusions
 ```
 
-NumPy is the only dependency. Where a compiler is present, the geometric
-predicates' inner loop is also built as a small Cython extension; without one
-the pure-Python implementation of the same predicates is used, and everything
-behaves identically. `opengl_extrusions.predicates.ACCELERATED` says which is in
-use.
+**NumPy is the only runtime dependency.** The code is Python and NumPy with one
+exception: where a compiler is present, the geometric predicates' inner loop is
+also built as a small Cython extension. Without one, the pure-Python
+implementation of the same predicates is used and everything behaves
+identically — the two are required to produce the same triangles, and the test
+suite runs both. `opengl_extrusions.predicates.ACCELERATED` says which is in
+use; `OPENGL_EXTRUSIONS_NO_ACCEL=1` forces the pure path.
 
 ## Documentation
 

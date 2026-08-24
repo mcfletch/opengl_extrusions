@@ -151,8 +151,8 @@ def sweep(contour, path, *,
           cap_max_area: Optional[float] = None,
           name: Optional[str] = None,
           extras: Optional[Dict[str, Any]] = None) -> Mesh:
-    """Sweep one or more contours along a path. See :func:`extrude` for the
-    documented public entry point, which calls this."""
+    """Sweep one or more contours along a path. See :func:`~opengl_extrusions.shapes.extrude`
+    for the documented public entry point, which calls this."""
     if join not in JOIN_STYLES:
         raise ValueError('unknown join style %r; expected one of %s'
                          % (join, ', '.join(JOIN_STYLES)))
