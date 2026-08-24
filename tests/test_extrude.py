@@ -126,6 +126,58 @@ class TestCaps:
             extrude(rectangle(1, 1), STRAIGHT, closed_contour=False, caps=True)
 
 
+class TestCapsAuto:
+    """The default caps where it can and says nothing where it cannot.
+
+    The two configurations that make caps impossible -- an open contour, which
+    has no inside, and a closed path, which has no ends -- are ordinary things
+    to ask for. Making the *default* of one parameter illegal in combination
+    with another is a trap the caller pays for on every call, so the default
+    means "if this is possible" and only an explicit request is held to it.
+    """
+
+    LOOP = np.column_stack(
+        [
+            np.cos(np.linspace(0, 2 * np.pi, 24, endpoint=False)),
+            np.sin(np.linspace(0, 2 * np.pi, 24, endpoint=False)),
+            np.zeros(24),
+        ]
+    )
+
+    def test_the_default_caps_an_ordinary_extrusion(self):
+        assert extrude(circle(1.0, 32), STRAIGHT).welded().primitives[0].is_watertight()
+
+    def test_the_default_needs_no_help_for_a_closed_path(self):
+        mesh = extrude(circle(0.2, 8), self.LOOP, closed_path=True, up=(0, 0, 1))
+        assert mesh.triangle_count > 0
+
+    def test_the_default_needs_no_help_for_an_open_contour(self):
+        mesh = extrude(rectangle(1, 1), STRAIGHT, closed_contour=False)
+        assert mesh.triangle_count > 0
+
+    def test_an_explicit_request_is_still_held_to_for_a_closed_path(self):
+        with pytest.raises(SweepError):
+            extrude(circle(0.2, 8), self.LOOP, closed_path=True, up=(0, 0, 1), caps=True)
+
+    def test_an_explicit_request_is_still_held_to_for_an_open_contour(self):
+        with pytest.raises(SweepError):
+            extrude(rectangle(1, 1), STRAIGHT, closed_contour=False, caps=True)
+
+    def test_auto_can_be_asked_for_by_name(self):
+        named = extrude(circle(1.0, 16), STRAIGHT, caps='auto')
+        assert named.triangle_count == extrude(circle(1.0, 16), STRAIGHT).triangle_count
+
+    def test_an_unknown_caps_value_is_still_refused(self):
+        with pytest.raises(ValueError):
+            extrude(circle(1.0, 8), STRAIGHT, caps='maybe')
+
+    def test_a_screw_defaults_to_auto_like_the_others(self):
+        from opengl_extrusions import screw
+
+        mesh = screw(rectangle(0.4, 0.4), start_z=0, end_z=1, twist=0.5, closed_contour=False)
+        assert mesh.triangle_count > 0
+
+
 class TestJoins:
     @pytest.mark.parametrize('join', ['raw', 'angle', 'cut', 'round'])
     def test_every_join_style_produces_a_valid_mesh(self, join):
@@ -229,9 +281,40 @@ class TestNormalModes:
         assert facet.vertex_count > edge.vertex_count
 
     def test_path_edge_smooths_along_the_path_as_well(self):
+        """At a corner, which is the only place there is anything to smooth."""
         edge = extrude(circle(0.3, 12), CORNER, normals='edge', caps=False)
         path_edge = extrude(circle(0.3, 12), CORNER, normals='path_edge', caps=False)
-        assert path_edge.vertex_count <= edge.vertex_count
+        assert path_edge.vertex_count < edge.vertex_count
+
+    def test_path_edge_averages_the_two_normals_at_a_bend(self):
+        """A mitred corner arrives facing one way and leaves facing another.
+
+        ``edge`` keeps both, which is what makes the bend a crease. ``path_edge``
+        replaces them with one normal bisecting the two, which is what makes it
+        smooth -- and there is no float coincidence anywhere in that.
+        """
+        p = extrude(circle(0.3, 24), CORNER, normals='path_edge', caps=False).primitives[0]
+        corner = np.array([0.0, 0.0, 2.0])
+        at_corner = np.linalg.norm(p.positions - corner, axis=1) < 0.45
+        assert at_corner.sum() > 0
+        # The tube runs along +z then along +x, so a corner normal that has been
+        # averaged leans between the two segments' normals rather than lying in
+        # either segment's own ring plane.
+        leaning = p.normals[at_corner]
+        assert np.allclose(np.linalg.norm(leaning, axis=1), 1.0, atol=1e-6)
+        # Every position at the corner now carries exactly one normal.
+        rounded = np.round(p.positions[at_corner], 6)
+        _, first, counts = np.unique(rounded, axis=0, return_index=True, return_counts=True)
+        for position, count in zip(rounded[np.sort(first)], counts, strict=False):
+            same = (np.round(p.positions, 6) == position).all(axis=1)
+            assert len(np.unique(np.round(p.normals[same], 5), axis=0)) == 1
+
+    def test_path_edge_on_a_straight_path_is_still_smooth_around_the_contour(self):
+        p = extrude(circle(1.0, 32), STRAIGHT, normals='path_edge', caps=False).primitives[0]
+        radial = p.positions.copy()
+        radial[:, 2] = 0
+        radial /= np.linalg.norm(radial, axis=1, keepdims=True)
+        assert (np.einsum('ij,ij->i', radial, p.normals) > 0.99).all()
 
     def test_supplied_contour_normals_are_used(self):
         square = rectangle(2, 2)

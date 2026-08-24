@@ -45,7 +45,7 @@ import numpy as np
 from opengl_extrusions.contours import circle, contour_normals
 from opengl_extrusions.curves import helix
 from opengl_extrusions.mesh import Mesh, Primitive
-from opengl_extrusions.sweep import Station, build_from_stations, sweep
+from opengl_extrusions.sweep import Station, SweepError, build_from_stations, sweep
 from opengl_extrusions.tessellate import tessellate
 from opengl_extrusions.types import Vector
 
@@ -73,7 +73,7 @@ def extrude(
     join: str = 'angle',
     miter_limit: float = 4.0,
     round_segments: int = 4,
-    caps: Any = True,
+    caps: Any = 'auto',
     closed_contour: bool = True,
     closed_path: bool = False,
     normals: str = 'edge',
@@ -108,8 +108,12 @@ def extrude(
     :param miter_limit: how far a mitre may stretch, as a multiple of the
         contour's own reach, before the corner is bevelled instead.
     :param round_segments: how many facets a ``'round'`` join uses.
-    :param caps: ``True`` for both ends, ``False`` for neither, or ``'begin'`` /
-        ``'end'`` for one. Requires a closed contour and an open path.
+    :param caps: ``'auto'`` (the default) caps both ends where caps are possible
+        at all, and quietly skips them where they are not -- an open contour has
+        no inside and a closed path has no ends. ``True`` for both ends,
+        ``False`` for neither, or ``'begin'`` / ``'end'`` for one; those are
+        requests rather than preferences, and a request that cannot be met
+        raises :class:`~opengl_extrusions.sweep.SweepError`.
     :param closed_contour: whether the contour's last point joins its first.
         Off for a sheet -- corrugated metal, a ribbon -- which then has no
         inside and cannot be capped.
@@ -212,8 +216,8 @@ def lathe(
         many sides it has.
     :param contour_normals_2d: outward normals for the contour, computed when
         not given.
-    :param caps: ``'auto'`` caps the two cut ends unless the sweep closes on
-        itself; ``True``/``False`` force it.
+    :param caps: ``'auto'`` (the default) caps the two cut ends unless the sweep
+        closes on itself or the contour is open; ``True``/``False`` force it.
     :param mitre: whether to stretch each ring so consecutive facets meet
         cleanly. On, the facets form a circumscribed polygon and the surface is
         continuous; off, they form an inscribed one and the joins step.
@@ -342,7 +346,7 @@ def screw(
     steps: int | None = None,
     contour_normals_2d=None,
     closed_contour: bool = True,
-    caps: Any = True,
+    caps: Any = 'auto',
     normals: str = 'edge',
     texture: str | None = 'normalized',
     name: str | None = None,
@@ -454,10 +458,15 @@ def _closes(sweep_angle: float, delta_radius: float = 0.0, delta_z: float = 0.0)
 def _cap_choice(
     caps: Any, sweep_angle: float, delta_radius: float = 0.0, delta_z: float = 0.0
 ) -> Any:
-    """``'auto'`` means cap unless the sweep comes back to where it started."""
+    """``'auto'`` means cap unless the sweep comes back to where it started.
+
+    A sweep that does close stays ``'auto'`` rather than becoming ``True``, so
+    the remaining reason caps might be impossible -- an open contour -- is still
+    decided by whoever knows about it, and by the same rule.
+    """
     if caps != 'auto':
         return caps
-    return not _closes(sweep_angle, delta_radius, delta_z)
+    return False if _closes(sweep_angle, delta_radius, delta_z) else 'auto'
 
 
 def _rotational(
@@ -542,17 +551,21 @@ def _rotational(
     )
     mesh = Mesh([primitive], name=name)
 
-    if _cap_choice(caps, sweep_angle, delta_radius, delta_z) and closed_contour:
+    wanted = _cap_choice(caps, sweep_angle, delta_radius, delta_z)
+    if wanted and not closed_contour and wanted != 'auto':
+        raise SweepError(
+            'an open contour has no inside, so it cannot be capped; '
+            'pass caps=False or close the contour'
+        )
+    if wanted and closed_contour:
         mesh = mesh + _rotational_caps(
             ring,
-            stations,
             angles,
             start_angle,
             start_radius,
             delta_radius,
             start_z,
             delta_z,
-            stretch,
             texture,
         )
         mesh = mesh.merged()
@@ -573,17 +586,21 @@ def _rotational(
 
 def _rotational_caps(
     ring,
-    stations,
     angles,
     start_angle,
     start_radius,
     delta_radius,
     start_z,
     delta_z,
-    stretch,
     texture,
 ) -> Mesh:
-    """Flat faces closing the two cut ends of a partial sweep."""
+    """Flat faces closing the two cut ends of a partial sweep.
+
+    The cap is the contour at its own size, not the mitre-stretched ring the
+    tube's end station uses: the stretch exists to make consecutive facets meet
+    along the sweep, and the cut end is where the sweep stops rather than a
+    facet joining anything.
+    """
     result = tessellate([ring], winding='odd')
     if len(result.triangles) == 0:
         return Mesh([])

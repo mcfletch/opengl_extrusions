@@ -88,8 +88,10 @@ JOIN_STYLES = ('raw', 'angle', 'cut', 'round')
 #:     the contour and creased across each ring. A hexagonal tube shades like a
 #:     cylinder; a corner in the path stays sharp.
 #: ``path_edge``
-#:     Smooth in both directions: rings are shared between segments and their
-#:     normals averaged. What you want for something bending smoothly.
+#:     Smooth in both directions. Every ring shared between two segments has one
+#:     normal, the average of the two the segments arrive and leave with, so a
+#:     bend in the path shades as a curve rather than as a crease. What you want
+#:     for anything bending smoothly -- a cable, a hose, a handrail.
 NORMAL_MODES = ('facet', 'edge', 'path_edge')
 
 #: How texture coordinates are laid out. ``normalized`` runs 0..1 around the
@@ -157,7 +159,7 @@ def sweep(
     join: str = 'angle',
     miter_limit: float = 4.0,
     round_segments: int = 4,
-    caps: Any = True,
+    caps: Any = 'auto',
     closed_contour: bool = True,
     closed_path: bool = False,
     normals: str = 'edge',
@@ -319,24 +321,36 @@ def _with_normals(rings, supplied, closed_contour):
 
 
 def _cap_flags(caps, closed_contour, closed_path) -> tuple[bool, bool]:
+    """Which ends to cap, and whether the request can be honoured at all.
+
+    ``'auto'`` -- the default -- caps where caps are possible and says nothing
+    where they are not. An explicit ``True``, ``'begin'``, ``'end'`` or
+    ``'both'`` is a request, and a request that cannot be met is an error rather
+    than a silence.
+    """
     if caps in (None, False):
         return False, False
-    if caps is True:
+    automatic = caps == 'auto'
+    if caps is True or caps in ('both', 'auto'):
         begin = end = True
     elif caps == 'begin':
         begin, end = True, False
     elif caps == 'end':
         begin, end = False, True
-    elif caps == 'both':
-        begin = end = True
     else:
-        raise ValueError("caps must be True, False, 'begin', 'end' or 'both', got %r" % (caps,))
+        raise ValueError(
+            "caps must be 'auto', True, False, 'begin', 'end' or 'both', got %r" % (caps,)
+        )
     if not closed_contour:
+        if automatic:
+            return False, False
         raise SweepError(
             'an open contour has no inside, so it cannot be capped; '
             'pass caps=False or close the contour'
         )
     if closed_path:
+        if automatic:
+            return False, False
         raise SweepError('a closed path has no ends to cap; pass caps=False')
     return begin, end
 
@@ -792,7 +806,12 @@ def build_from_stations(
         attributes, _without_degenerates(attributes['POSITION'], np.concatenate(indices))
     )
     if normals == 'path_edge':
-        primitive = primitive.welded()
+        # Every ring the strips share is duplicated once per strip, and at a
+        # corner the two copies deliberately face different ways -- that is what
+        # makes the bend a crease under ``edge``. Averaging them is what makes it
+        # smooth, and it has to be an average rather than a weld: at a mitre the
+        # two normals are never equal, so nothing would merge on its own.
+        primitive = primitive.smoothed(np.pi)
     primitive.extras['contour'] = contour_index
     return primitive
 

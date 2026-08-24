@@ -123,7 +123,100 @@ class TestVRML97Extrusion:
         section = np.vstack([circle(1.0, 16), circle(1.0, 16)[:1]])
         sharp = vrml97_extrusion(cross_section=section, crease_angle=0.0)
         smooth = vrml97_extrusion(cross_section=section, crease_angle=1.0)
-        assert smooth.vertex_count <= sharp.vertex_count
+        assert smooth.vertex_count < sharp.vertex_count
+
+
+class TestCreaseAngle:
+    """``creaseAngle`` is a threshold, not a switch.
+
+    ISO/IEC 14772-1 clause 6.23: an edge whose two faces meet at less than the
+    crease angle is shaded smoothly across, and one that meets at more than it
+    keeps its lighting discontinuity. So the *same* shape at two different
+    angles is two different meshes, and a shape with both shallow and sharp
+    edges gets both treatments at once.
+    """
+
+    #: Sixteen arc segments closed by one straight chord: the arc's own joins
+    #: turn by 11.25 degrees and the two where the chord meets it turn by 90, so
+    #: a threshold between the two has both something to smooth and something to
+    #: leave alone.
+    ARC_SEGMENTS = 16
+    SIDES = ARC_SEGMENTS + 1
+
+    @classmethod
+    def _capsule(cls, crease_angle):
+        angles = np.linspace(0.0, np.pi, cls.ARC_SEGMENTS + 1)
+        arc = np.column_stack([np.cos(angles), np.sin(angles)])
+        section = np.vstack([arc, arc[:1]])
+        return vrml97_extrusion(
+            cross_section=section,
+            spine=[(0, 0, 0), (0, 2, 0)],
+            crease_angle=crease_angle,
+            begin_cap=False,
+            end_cap=False,
+        )
+
+    def test_every_value_does_not_give_the_same_mesh(self):
+        counts = {
+            angle: self._capsule(angle).vertex_count
+            for angle in (0.0, 0.1, np.pi / 4, np.pi / 2 + 0.01, np.pi)
+        }
+        assert len(set(counts.values())) > 1, counts
+
+    def test_zero_leaves_every_edge_sharp(self):
+        """Which is what VRML97's default of zero asks for: a faceted surface,
+        each face with a normal of its own and no vertex shared with a
+        neighbour."""
+        assert self._capsule(0.0).vertex_count == self.SIDES * 4
+
+    def test_a_half_turn_smooths_everything(self):
+        """Nothing on a closed section bends by more than pi, so every edge goes,
+        and each of the section's points is left with one vertex per spine
+        point."""
+        assert self._capsule(np.pi).vertex_count == self.SIDES * 2
+
+    def test_an_angle_between_smooths_only_the_shallow_edges(self):
+        """The arc's joins turn by 11.25 degrees and the chord's ends by 90.
+
+        Above the first and below the second, the arc smooths and the two chord
+        corners stay sharp -- which is the whole point of the field.
+        """
+        partial = self._capsule(np.radians(45.0))
+        assert self.SIDES * 2 < partial.vertex_count < self.SIDES * 4
+        # The two corners where the chord meets the arc are the only ones left
+        # split, and they are split at each end of the spine.
+        assert partial.vertex_count == self.SIDES * 2 + 4
+
+    def test_smoothing_leaves_the_surface_where_it_was(self):
+        sharp = self._capsule(0.0)
+        smooth = self._capsule(np.pi)
+        assert smooth.primitives[0].surface_area() == pytest.approx(
+            sharp.primitives[0].surface_area(), rel=1e-9
+        )
+        assert np.allclose(smooth.bounds, sharp.bounds, atol=1e-6)
+
+    def test_a_smoothed_normal_is_the_average_of_the_faces_it_joins(self):
+        smooth = self._capsule(np.pi).primitives[0]
+        assert np.allclose(np.linalg.norm(smooth.normals, axis=1), 1.0, atol=1e-6)
+        # A section swept straight along +y: every normal is square to the sweep.
+        assert np.allclose(smooth.normals[:, 1], 0.0, atol=1e-6)
+        # On the arc the surface is a half-cylinder, so a smoothed normal lies
+        # along the radius. It faces inward, because a counter-clockwise section
+        # in VRML's x-z plane is an inside-out solid -- what matters is that
+        # every one of them agrees.
+        # The arc's interior only: at its two ends the arc meets the chord, and
+        # a normal smoothed across *that* join is correctly the average of a
+        # curved face and a flat one rather than a radius.
+        radial = smooth.positions[:, [0, 2]]
+        on_arc = np.abs(smooth.positions[:, 2]) > 0.05
+        radial = radial[on_arc] / np.linalg.norm(radial[on_arc], axis=1, keepdims=True)
+        agreement = np.einsum('ij,ij->i', radial, smooth.normals[on_arc][:, [0, 2]])
+        assert np.allclose(np.abs(agreement), 1.0, atol=2e-2)
+        assert (agreement > 0).all() or (agreement < 0).all()
+
+    def test_a_negative_crease_angle_is_refused(self):
+        with pytest.raises(ValueError):
+            vrml97_extrusion(crease_angle=-0.1)
 
     def test_a_spine_of_one_point_is_refused(self):
         with pytest.raises(ValueError):

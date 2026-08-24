@@ -121,13 +121,18 @@ def vrml97_extrusion(
     :param end_cap: close the end of the sweep.
     :param ccw: whether the cross-section's points are counter-clockwise, which
         is what decides which way the surface faces.
-    :param crease_angle: the angle, in radians, below which a crease between two
-        faces is smoothed. Zero leaves every edge sharp.
+    :param crease_angle: the angle, in radians, below which the edge between two
+        faces is shaded smoothly across; above it the edge keeps its lighting
+        discontinuity. Zero -- VRML97's own default -- leaves every edge sharp,
+        so the surface is faceted; ``pi`` or more smooths every edge there is.
+        The normals are generated from the faces, as the specification requires,
+        which is why the field has anything to decide.
 
     :returns: a :class:`~opengl_extrusions.mesh.Mesh`.
 
     :raises ValueError: for a spine of fewer than two points, a cross-section of
-        fewer than three, non-finite values, or a non-positive scale.
+        fewer than three, non-finite values, a non-positive scale, or a negative
+        crease angle.
 
     The node's defaults are a unit square swept one unit up::
 
@@ -146,6 +151,8 @@ def vrml97_extrusion(
         raise ValueError('crossSection or spine contains a non-finite value')
     if len(path) < 2:
         raise ValueError('a spine needs at least 2 points, got %d' % len(path))
+    if crease_angle < 0:
+        raise ValueError('creaseAngle must not be negative, got %r' % (crease_angle,))
 
     closed_spine = len(path) > 2 and bool(np.allclose(path[0], path[-1]))
     if closed_spine:
@@ -187,12 +194,18 @@ def vrml97_extrusion(
         normals = flat[:, 0:1] * basis_x + flat[:, 1:2] * basis_z
         stations.append(Station(points, normals, travelled, connect=closed_spine or i < steps - 1))
 
+    # VRML97 generates this node's normals from the faces, with ``creaseAngle``
+    # deciding which edges between them are smoothed -- so the surface starts
+    # faceted, one normal per quad, and the smoothing below is what softens it.
+    # Starting from the contour's own normals would be smoother but would leave
+    # ``creaseAngle`` nothing to decide, since the surface would already be
+    # smooth around the cross-section whatever the field said.
     primitive = build_from_stations(
         stations,
         section,
         closed_section,
         closed_spine,
-        'edge' if crease_angle <= 0 else 'path_edge',
+        'facet',
         texture,
         travelled,
         reverse_winding=not ccw,
@@ -221,7 +234,7 @@ def vrml97_extrusion(
         )
         mesh = mesh.merged()
     if crease_angle > 0:
-        mesh = mesh.welded()
+        mesh = mesh.smoothed(crease_angle)
     for p in mesh.primitives:
         p.extras.update(
             {

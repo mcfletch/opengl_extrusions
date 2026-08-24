@@ -260,6 +260,39 @@ class Primitive:
         indices = mapping[self.triangles.ravel()].astype(np.uint32)
         return Primitive(attributes, indices, self.mode, self.material, dict(self.extras))
 
+    def smoothed(self, crease_angle: float, tolerance: float = 0.0) -> Primitive:
+        """A copy shaded as one surface wherever it does not crease.
+
+        A surface generated in pieces carries several vertices at each seam, one
+        per piece, each facing the way its own piece does. This gives every such
+        group one normal -- the average of the group's -- wherever the angle
+        between them is below ``crease_angle``, and leaves the sharper seams
+        exactly as they were. The vertices that now agree in every attribute are
+        then merged, so the result is smaller as well as smoother.
+
+        ``crease_angle`` is in **radians**. Zero changes nothing; ``pi`` or more
+        smooths every seam there is. A primitive with no ``NORMAL`` is returned
+        unchanged, since there is nothing to average.
+
+        :raises MeshError: for a negative ``crease_angle``.
+        """
+        if crease_angle < 0:
+            raise MeshError('crease_angle must not be negative, got %r' % (crease_angle,))
+        normals = self.attributes.get('NORMAL')
+        if normals is None or crease_angle == 0:
+            return self.welded(tolerance)
+        attributes = dict(self.attributes)
+        attributes['NORMAL'] = _as_float32(
+            _weld.averaged_normals(self.positions, normals, crease_angle, tolerance)
+        )
+        return Primitive(
+            attributes,
+            None if self.indices is None else self.indices.copy(),
+            self.mode,
+            self.material,
+            dict(self.extras),
+        ).welded(tolerance)
+
     def transformed(self, matrix: Points) -> Primitive:
         """A copy moved by a 4x4 matrix.
 
@@ -365,7 +398,11 @@ class Mesh:
     def __add__(self, other: Mesh) -> Mesh:
         if not isinstance(other, Mesh):
             return NotImplemented
-        return Mesh(list(self.primitives) + list(other.primitives), self.name)
+        return Mesh(
+            list(self.primitives) + list(other.primitives),
+            self.name,
+            list(self.materials) + list(other.materials),
+        )
 
     @property
     def vertex_count(self) -> int:
@@ -427,19 +464,28 @@ class Mesh:
                     attributes, np.concatenate(indices), key[1], key[2], {'merged': len(members)}
                 )
             )
-        return Mesh(out, self.name)
+        return Mesh(out, self.name, self.materials)
 
     def welded(self, tolerance: float = 0.0) -> Mesh:
         """A copy with each primitive's duplicate vertices merged."""
-        return Mesh([p.welded(tolerance) for p in self.primitives], self.name)
+        return Mesh([p.welded(tolerance) for p in self.primitives], self.name, self.materials)
+
+    def smoothed(self, crease_angle: float, tolerance: float = 0.0) -> Mesh:
+        """A copy shaded as one surface across every seam shallower than
+        ``crease_angle`` radians. See :meth:`Primitive.smoothed`."""
+        return Mesh(
+            [p.smoothed(crease_angle, tolerance) for p in self.primitives],
+            self.name,
+            self.materials,
+        )
 
     def transformed(self, matrix: Points) -> Mesh:
         """A copy moved by a 4x4 matrix."""
-        return Mesh([p.transformed(matrix) for p in self.primitives], self.name)
+        return Mesh([p.transformed(matrix) for p in self.primitives], self.name, self.materials)
 
     def reversed(self) -> Mesh:
         """A copy facing the other way: every primitive's winding and normals flipped."""
-        return Mesh([p.reversed() for p in self.primitives], self.name)
+        return Mesh([p.reversed() for p in self.primitives], self.name, self.materials)
 
     # -- serialisation ----------------------------------------------------
 
