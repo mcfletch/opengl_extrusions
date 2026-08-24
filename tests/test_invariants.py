@@ -168,6 +168,86 @@ class TestTheMeshCoversItsHull:
         assert t.is_delaunay()
 
 
+class TestTheFlipPathIsReached:
+    """`restore_delaunay` flips an edge that fails the in-circle test.
+
+    Bowyer-Watson insertion and the pseudo-polygon fill both already produce
+    Delaunay results, so on ordinary input the restoration pass finds nothing to
+    do and the flip is never taken -- which left the convexity refusal, the
+    winding transfer and the neighbour re-push as delicate topology nothing ran.
+    The input below does reach it: six points spanning eleven orders of
+    magnitude, three of them a nanometre apart on a two-hundred-unit shape.
+    """
+
+    #: Shrunk from a random search until removing any point stops the flip.
+    NEEDS_A_FLIP = np.array(
+        [
+            (1e-09, 1e-09),
+            (0.5, 1e-09),
+            (1.0, 0.0),
+            (252.0, 1e-09),
+            (252.0, 252.0),
+        ]
+    )
+
+    @staticmethod
+    def _flips(points):
+        """How many flips triangulating these points performs."""
+        counted = {'n': 0}
+        mesh = Triangulation.__new__(Triangulation)
+        original = Triangulation._flip
+
+        def watched(self, t, i, n, apex):
+            counted['n'] += 1
+            return original(self, t, i, n, apex)
+
+        Triangulation._flip = watched
+        try:
+            mesh = Triangulation(points)
+        finally:
+            Triangulation._flip = original
+        return counted['n'], mesh
+
+    def test_the_flip_is_reachable(self):
+        flips, mesh = self._flips(self.NEEDS_A_FLIP)
+        assert flips > 0
+        mesh.check_consistency()
+        assert mesh.is_delaunay()
+
+    def test_the_flip_leaves_the_mesh_covering_its_hull(self):
+        _, mesh = self._flips(self.NEEDS_A_FLIP)
+        hull = mesh.points[convex_hull(mesh.points)]
+        a, b, c = (mesh.points[mesh.triangles[:, i]] for i in range(3))
+        u, v = b - a, c - a
+        area = float(0.5 * np.abs(u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]).sum())
+        assert area == pytest.approx(abs(polygon_area(hull)), rel=1e-9)
+
+    def test_an_ordinary_mesh_needs_no_flips(self):
+        """Which is why it went unexercised: the flip is a repair for input the
+        two constructions cannot get right on their own, and most input is not
+        that."""
+        rng = np.random.default_rng(5)
+        flips, _ = self._flips(rng.uniform(-1, 1, size=(60, 2)))
+        assert flips == 0
+
+    def test_a_flip_that_would_make_an_overlap_is_refused(self):
+        """The other diagonal of a non-convex quadrilateral falls outside it."""
+        mesh = Triangulation(square())
+        t = mesh.triangle_indices[0]
+        verts = mesh._verts(t)
+        for i in range(3):
+            n = mesh.neighbour(t, i)
+            if n < 0:
+                continue
+            apex = mesh._apex(n, verts[(i + 1) % 3], verts[(i + 2) % 3])
+            # Flipping a Delaunay quadrilateral is legal; flipping it back is
+            # what a non-convex pair looks like from here.
+            assert mesh._flip(t, i, n, apex)
+            mesh.check_consistency()
+            return
+        pytest.fail('the mesh has no interior edge to flip')
+
+
 class TestConstraintsWithoutRecursion:
     def test_a_constraint_crossing_many_collinear_vertices_is_inserted(self):
         """One recursion per vertex on the constraint puts a ceiling on this

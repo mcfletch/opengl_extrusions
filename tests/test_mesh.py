@@ -258,6 +258,39 @@ class TestMesh:
         with pytest.raises(MeshError):
             Mesh([quad(), bad]).validate()
 
+    def test_a_mesh_can_be_transformed_and_reversed_as_a_whole(self):
+        turned = Mesh([quad(), tetrahedron()]).transformed(np.diag([2.0, 2.0, 2.0, 1.0]))
+        assert len(turned.primitives) == 2
+        assert np.allclose(turned.primitives[0].bounds[1], (2, 2, 0))
+        assert Mesh([tetrahedron()]).reversed().primitives[0].signed_volume() < 0
+
+    def test_smoothing_a_whole_mesh_reaches_every_primitive(self):
+        p = quad()
+        p.attributes['NORMAL'] = np.array([(0, 0, 1), (0, 0, 1), (0.1, 0, 1), (0.1, 0, 1)], 'f')
+        smoothed = Mesh([p]).smoothed(np.pi)
+        assert smoothed.primitives[0].vertex_count == p.vertex_count
+
+    def test_a_negative_crease_angle_is_refused(self):
+        with pytest.raises(MeshError):
+            quad().smoothed(-0.1)
+
+    def test_smoothing_a_primitive_with_no_normals_just_welds_it(self):
+        p = Primitive(
+            {'POSITION': np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 0)], 'f')},
+            np.array([0, 1, 2, 3, 1, 2], np.uint32),
+        )
+        assert p.smoothed(np.pi).vertex_count == 3
+
+    def test_extras_are_written_out_and_survive_serialisation(self):
+        p = quad()
+        p.extras['generator'] = 'test'
+        p.extras['parameters'] = {'sides': np.int64(8), 'radius': np.float32(0.5)}
+        doc = Mesh([p]).to_gltf()
+        entry = doc['meshes'][0]['primitives'][0]['extras']
+        assert entry['generator'] == 'test'
+        assert entry['parameters'] == {'sides': 8, 'radius': pytest.approx(0.5)}
+        json.dumps(doc)
+
     def test_extras_record_what_made_the_mesh(self):
         p = quad()
         p.extras['generator'] = 'test'

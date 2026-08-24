@@ -79,6 +79,18 @@ Two smaller things the same traceback shows: the error message interpolates raw
 of NumPy scalars), and it names point 0 for a condition that is a property of
 the whole path. `tuple(float(v) for v in reference)` fixes the first.
 
+**✅ Done** (`04faa64`). The README example and the package docstring now
+sweep `[(0, 0, 0), (0, 0, 1), (1, 0, 2)]`, and a second example beside each
+shows `frames='rmf'` for the vertical case the first cannot do. `--doctest-modules`
+(§E1) is what holds them to it from here.
+
+`FrameError`'s message reads as plain numbers -- `tuple(round(float(v), 6) …)`
+rather than `%s` on NumPy scalars -- and distinguishes three cases instead of
+always naming point 0: "at all N of its points" for a path that is vertical end
+to end, "at point N" for one bad point, and "at N of its points, first at point
+M" in between. Those want different answers from the reader, which is why the
+message now tells them apart. Tests: `test_contours.py`,
+`TestPathFrames::test_the_parallel_to_up_message_*`.
 ### A2 — A sweep below about 1e-5 model units silently produces zero triangles
 
 [`sweep.py:655`](../src/opengl_extrusions/sweep.py#L655), in
@@ -110,6 +122,21 @@ relative — `areas > areas.max() * 1e-12` — with an explicit `if areas.max() 
 with vertices has a non-empty index buffer, so this class of silent emptiness
 fails loudly.
 
+**✅ Done** (`1843f20`). The `max(…, 1.0)` floor is gone; the test is
+`areas > areas.max() * 1e-12`, with `areas.max() == 0.0` handled as itself
+(everything dropped, which is the same answer the relative test gives and the
+only one it cannot express).
+
+`Primitive.validate()` grew the check the finding asks for: a triangle-mode
+primitive with vertices and an empty index buffer raises `MeshError`, so this
+class of silent emptiness is loud from now on.
+
+Tests: `test_extrude.py::TestScaleIndependence` sweeps 1e-6 to 1e6 for both
+triangle count and area-relative-to-own-size, plus
+`TestValidateCatchesSilentEmptiness`. The old
+`test_a_zero_radius_contour_produces_no_area` (§D) is now
+`test_a_zero_radius_contour_collapses_onto_the_path`, and asserts the vertices
+are on the axis -- which is what tells the correct answer from this failure.
 ### A3 — `to_gltf()` can emit a document no glTF reader will accept
 
 [`mesh.py:417-418`](../src/opengl_extrusions/mesh.py#L417-L418) writes
@@ -143,6 +170,19 @@ Returning `Tuple[dict, bytes]` from a `_to_gltf_and_blob()` helper, with
 `to_gltf()` and `to_glb_bytes()` both built on it, removes the private key from
 the public contract entirely.
 
+**✅ Done** (`1843f20`). `Mesh` carries `materials: list[dict]`, and
+`to_gltf` writes it. A mesh that uses `material` only as a grouping key -- which
+is what `merged()` reads it as, and all a generator here ever sets -- gets
+default PBR materials so the document is valid and says nothing untrue about
+the surface; a mesh that supplies materials gets a `MeshError` for an index
+outside them. The rule is stated on `_materials_array`.
+
+The `_blob` key is gone from the public contract: `_to_gltf_and_blob(embed)`
+returns `(document, bytes)` and both `to_gltf` and `to_glb_bytes` are built on
+it, so `to_gltf(embed=False)` returns glTF and nothing else.
+
+Tests: `test_mesh.py::TestGLTFMaterials` (six cases) and
+`test_the_document_carries_nothing_that_is_not_gltf`.
 ### A4 — `caps=True` is the default, and two ordinary configurations make it an error
 
 [`sweep.py:272-277`](../src/opengl_extrusions/sweep.py#L272-L277):
@@ -165,6 +205,15 @@ skip where they are not — and keep the error for an *explicit* `caps=True` tha
 cannot be honoured. `lathe`/`spiral` already default to `'auto'`, so this also
 makes the generators consistent with each other.
 
+**✅ Done** (`56293c8`). `caps` defaults to `'auto'` on `extrude`,
+`sweep` and `screw`, joining `lathe` and `spiral`. `'auto'` caps where caps are
+possible and is silent where they are not; an explicit `True`/`'begin'`/`'end'`/
+`'both'` is a request, and a request that cannot be met still raises
+`SweepError`. `_rotational` raises in the same words for an explicit `True` with
+an open contour, which it previously skipped silently.
+
+Tests: `test_extrude.py::TestCapsAuto` -- eight cases covering both defaults,
+both explicit refusals, `'auto'` by name, an unknown value, and `screw`.
 ---
 
 ## B. Correctness defects
@@ -196,6 +245,24 @@ the docs that `creaseAngle` is approximated by an all-or-nothing smooth. The
 present state promises the specification's behaviour and delivers something
 else.
 
+**✅ Done** (`56293c8`). Implemented, in `weld.py` where the finding
+says it belongs: `smoothing_groups()` decides which vertices at a shared
+position are one surface and which are a crease, `averaged_normals()` gives each
+group its mean direction, and `Primitive.smoothed()` / `Mesh.smoothed()` are the
+public way to reach it.
+
+What made the field inert was upstream of the smoothing: the sides were built
+from the cross-section's own normals, which are already smooth around the
+section whatever `creaseAngle` says. VRML97 generates this node's normals from
+the *faces* (clause 6.23), so the sides now start faceted and the crease angle
+chooses which edges between them are smoothed. That is a visible change to the
+default -- `creaseAngle` of zero means a faceted surface, and always did.
+A negative angle is refused.
+
+Tests: `test_vrml97.py::TestCreaseAngle` -- zero leaves every edge sharp
+(`SIDES * 4` vertices), pi smooths every edge (`SIDES * 2`), 45 degrees on a
+sixteen-segment arc closed by a chord smooths the arc and keeps the two chord
+corners, the surface does not move, and the smoothed normals are radii.
 ### B2 — `normals='path_edge'` does nothing at exactly the corner it is for
 
 `sweep.py:80` documents it as "Smooth in both directions: rings are shared
@@ -223,6 +290,17 @@ weld on position, rather than relying on incidental float equality. Note that
 which cannot be true while this stands, and that no parity test covers normal
 modes at all.
 
+**✅ Done** (`56293c8`). `path_edge` is `primitive.smoothed(pi)`: the
+normals of coincident positions are averaged across station boundaries and the
+result welded, rather than relying on incidental float equality. At a mitre the
+two normals are never equal, which is exactly why nothing welded before.
+
+Tests: `test_extrude.py::TestNormalModes` --
+`test_path_edge_smooths_along_the_path_as_well` is now `<` rather than `<=`
+(§D), and `test_path_edge_averages_the_two_normals_at_a_bend` asserts every
+position at the corner carries one normal.
+
+`docs/GLE-PARITY.md`'s `TUBE_NORM_PATH_EDGE` row is addressed under §G.
 ### B3 — `Primitive.reversed()` breaks a tangent frame
 
 [`mesh.py:284-287`](../src/opengl_extrusions/mesh.py#L284-L287):
@@ -251,6 +329,13 @@ soon as they call `with_tangents()` on a spiral.
 (`test_edges.py:245-252`) only checks that a *non-mirroring* `transformed()`
 leaves `w` alone, so it does not cover this.
 
+**✅ Done** (`1843f20`). `reversed()` negates the tangents'
+handedness column with the normals, so the bitangent `cross(N, T) * w` turns
+over with the surface rather than on its own.
+
+Tests: `test_mesh.py::TestTangentFramesSurviveTheirTransforms` -- the bitangent
+is unchanged by a reversal, `w` is negated, and reversing twice is the
+identity.
 ### B4 — `Primitive.transformed()` does not flip winding under a mirror
 
 [`mesh.py:252-280`](../src/opengl_extrusions/mesh.py#L252-L280). A matrix with a
@@ -272,6 +357,15 @@ singular matrix (a zero scale) rather than a `MeshError`.
 index columns when `det < 0`, and raise `MeshError` when `det == 0` with a
 message naming the matrix.
 
+**✅ Done** (`1843f20`). `transformed()` computes
+`det = np.linalg.det(m[:3, :3])`; a negative determinant swaps the last two
+index columns *and* negates the tangents' `w`, so normal, winding and bitangent
+keep agreeing. A zero determinant raises `MeshError` naming the matrix, rather
+than a bare `LinAlgError`.
+
+Tests: `test_mesh.py::TestMirroring` -- the winding flips under a mirror, a
+solid keeps its sign, an ordinary transform leaves the winding alone, the
+tangent handedness flips, and a singular matrix is refused by name.
 ### B5 — A scalar `scale` or `twist` skips the finiteness check
 
 [`sweep.py:286-290`](../src/opengl_extrusions/sweep.py#L286-L290):
@@ -299,6 +393,12 @@ refuses non-finite values at the boundary.
 *Suggested fix:* delete the duplicated branch and let the scalar case fall
 through to the shared validation at `sweep.py:309-311`.
 
+**✅ Done** (`1843f20`). The duplicated dead branch is gone and the
+scalar case falls through to the shared validation, so `scale=nan` is refused
+at the boundary as every other input path refuses one.
+
+Tests: `test_extrude.py::TestPerVertexParameters` -- nan, inf and -inf for both
+`scale` and `twist`, and a non-finite `color`.
 ### B6 — `Triangulation._flip` has never been executed
 
 Coverage reports `cdt.py:757-774` (the whole of `_flip`) and `743-748` (the
@@ -323,6 +423,21 @@ non-zero count. If it is not reachable, delete it and simplify `restore_delaunay
 to the assertion that nothing needs flipping — dead code in a triangulator is
 worse than no code, because the next maintainer will trust it.
 
+**⚠️ Reachable, and now reached** -- the decision the finding asks
+for, with the evidence behind it (`677aa8f`).
+
+It is not dead code. A random search over degenerate-flavoured point sets
+reaches `_flip` about once in two hundred, and the flip succeeds when it does.
+`tests/test_invariants.py::TestTheFlipPathIsReached` pins a five-point case,
+shrunk until removing any point stops the flip: coordinates spanning eleven
+orders of magnitude, four of them within a nanometre of one line across a
+two-hundred-unit shape. The test asserts a flip happens, the mesh stays
+consistent and Delaunay afterwards, that an ordinary sixty-point set needs no
+flips at all -- which is why it went unexercised -- and that the convexity
+refusal returns a mesh `check_consistency` accepts.
+
+So the answer to "reach it or remove it" is *reach it*, and it is reached.
+Nothing was deleted.
 ### B7 — `_created` grows for the lifetime of a `Triangulation`, and its docstring says otherwise
 
 [`cdt.py:158-161`](../src/opengl_extrusions/cdt.py#L158-L161):
@@ -351,6 +466,14 @@ have `_split_segment` collect what it made directly, or truncate `_created` back
 to `watch` when the slice is taken. And fix the docstring either way: a comment
 describing behaviour the code does not have is worse than no comment.
 
+**✅ Done** (`473e750`). `_created` is now what its comment claimed:
+`list[int] | None`, `None` when nobody is watching. `_split_segment` -- the only
+watcher -- puts a list down for the duration of its own call and picks the outer
+one back up afterwards, so nothing accumulates. The comment describes that.
+
+Tests: `test_invariants.py::TestSegmentBookkeeping` --
+`test_nothing_records_triangles_when_nobody_is_watching` after a refinement, and
+`test_a_segment_split_reports_what_it_made`.
 ### B8 — `_segment_arrays`' cache key cannot see a content change
 
 [`cdt.py:1088-1097`](../src/opengl_extrusions/cdt.py#L1088-L1097):
@@ -375,6 +498,19 @@ both public methods with public docstrings inviting exactly that sequence.
 recurring hazard; this is the only one in the package, and it is worth removing
 rather than tightening.
 
+**✅ Done** (`473e750`). The stamp is gone. `_invalidate_segments()`
+is called from `classify`, `from_pslg` and `_split_segment` -- the three places
+that mutate `_segment_delta` -- and `_segment_arrays` simply returns its cache
+or rebuilds.
+
+The same cache also rebuilt the whole vertex array to read two rows of it, and
+refinement invalidates that array once per inserted point; the ends are now
+gathered from `self._pts` directly. That is what turned refinement from
+O(n^1.4) into linear -- see §F.
+
+Tests: `test_invariants.py::test_reclassifying_with_a_different_graph_takes_effect`
+uses two graphs with the same point and edge counts over different edges, which
+is precisely what the stamp could not tell apart.
 ### B9 — `_remove_triangle` leaves `_winding` behind, and every caller has to remember
 
 [`cdt.py:257-268`](../src/opengl_extrusions/cdt.py#L257-L268) frees the triangle
@@ -395,6 +531,14 @@ entries, and those indices are immediately reused by `refine`; `_incident_triang
 recovers by rescanning the whole mesh (`cdt.py:617-626`), so the cost is silent
 and O(T) rather than wrong.
 
+**✅ Done** (`473e750`). `self._winding.pop(t, None)` moved into
+`_remove_triangle`, and out of all four callers. `_drop_super` additionally
+clears `_vertex_tri` for the super vertices, whose indices are handed straight
+back out to `refine`.
+
+Tests: `test_invariants.py::TestTriangleRecycling` -- removal forgets the
+winding, a recycled index does not inherit one, and no fan hint survives against
+a dropped vertex.
 ### B10 — `MAX_SPLIT_PASSES` can return a non-planar graph without saying so
 
 [`planar.py:55-57`](../src/opengl_extrusions/planar.py#L55-L57) and
@@ -412,6 +556,17 @@ remaining passes — so `tessellate()` can decide, and so a test can assert it w
 never needed on ordinary input. Silent degradation is the one failure mode that
 never gets reported by users, because they cannot see it.
 
+**✅ Done** (`473e750`). `PSLG.settled` records whether splitting
+ran to completion. `_split_at_intersections` returns it, and where it hit
+`MAX_SPLIT_PASSES` with work still to do it re-checks once and reports honestly.
+The field's docstring says what `False` means and that the triangulator's
+invariants assume it is `True`.
+
+Tests: `test_invariants.py::TestGraphSettling` -- ordinary input settles,
+self-crossing input settles, and a monkeypatched cap of zero reports `False`.
+`test_planar.py::test_ordinary_input_never_needs_the_pass_cap` asserts the cap
+is not reached for the module's own fixtures, which is the other half of the
+finding.
 ### B11 — `lathe(sides=1)` and `sides=2` inflate the model by up to 10⁶
 
 [`shapes.py:387`](../src/opengl_extrusions/shapes.py#L387):
@@ -438,6 +593,16 @@ a 200 000-unit model. `test_shapes.py:85-87` only checks that `sides=0` raises.
 `stretch` to a sane ceiling and say so. Either way the failure should be an
 error message, not a shape.
 
+**✅ Done** (`9ed47ae`). `_rotational` refuses fewer than three
+facets per full turn when `mitre=True`, and the message names `mitre=False` as
+the way to have fewer. The clamp that turned a division by zero into a
+200 000-unit model is gone with it.
+
+Tests: `test_contracts.py::TestRotationalSweepFacets` -- one and two facets
+refused with `mitre=True` and accepted without it, three facets working, a
+partial sweep counting facets over the arc it covers, and `spiral` at two
+facets bounded by `miter_limit` (which is where its equivalent case lives, since
+a spiral sweeps along a helix rather than placing radial rings).
 ### B12 — `rounded_rectangle` accepts a negative size where `rectangle` refuses it
 
 [`contours.py:77-79`](../src/opengl_extrusions/contours.py#L77-L79) checks
@@ -465,6 +630,16 @@ A hard-coded absolute epsilon in a scale-free API. A rounded rectangle authored
 at 1e-13 units has every edge deleted. This is the same class of defect as §A2;
 `planar.RELATIVE_TOLERANCE` exists precisely to avoid it and should be used here.
 
+**✅ Done** (`1843f20`). Both halves. `rounded_rectangle` validates
+width and height first, in the same words `rectangle` uses, so a negative size
+can no longer clamp the corner radius negative and draw the arcs backwards. The
+hard-coded `1e-15` is now `planar.RELATIVE_TOLERANCE` against the ring's own
+bounding-box diagonal.
+
+Tests: `test_contours.py` --
+`test_a_rounded_rectangle_refuses_what_a_rectangle_refuses` over five bad sizes,
+and `test_a_rounded_rectangle_is_the_same_shape_at_every_scale` over 1e-15 to
+1e15.
 ### B13 — VRML97 closure is decided by `np.allclose`'s default relative tolerance
 
 [`vrml97.py:144, 147`](../src/opengl_extrusions/vrml97.py#L144-L147):
@@ -486,6 +661,13 @@ bounding box the way `planar._auto_tolerance` does. `sweep._as_contours` already
 uses `np.array_equal` for the analogous decision (`sweep.py:231`), so the package
 disagrees with itself.
 
+**✅ Done** (`9ed47ae`). Both closure tests use `np.array_equal`,
+which is what `sweep._as_contours` already used for the analogous decision, so
+the package agrees with itself. The comment says why the test is exact.
+
+Tests: `test_contracts.py::TestVRML97Closure` -- a spine and a cross-section
+that nearly close at a scale of 1e6 are reported open, an exactly closed one is
+reported closed.
 ### B14 — `_caps`' facing logic in `vrml97.py` cannot be verified by reading it
 
 [`vrml97.py:234-239`](../src/opengl_extrusions/vrml97.py#L234-L239):
@@ -511,6 +693,16 @@ of the three each factor accounts for; then parametrise the test over all eight
 combinations asserting `signed_volume()`'s sign. The logic may well be right; it
 should not require running it to find out.
 
+**✅ Done** (`9ed47ae`). Replaced by one sign,
+`(1 if at_end else -1) * (1 if ccw else -1) * (1 if outward else -1)`, with a
+table in the docstring saying what each factor accounts for. The same sign
+settles both the normal and the winding, which is what stops a cull removing the
+side that was shaded.
+
+Tests: `test_contracts.py::TestVRML97CapFacing` parametrises all four
+`(ccw, section handedness)` combinations across four assertions -- a coherent
+enclosed volume, `ccw` turning the whole solid over, the handedness doing the
+same, and the cap normals agreeing with the winding.
 ### B15 — The predicates blame the wrong point in their error messages
 
 [`predicates.py:140-142`](../src/opengl_extrusions/predicates.py#L140-L142) and
@@ -529,6 +721,12 @@ that *something* raises, so this is not caught.
 *Suggested fix:* have the accelerated path re-run `_coords(a, b, c)`, which
 already finds and names the right point, before raising.
 
+**✅ Done** (`9ed47ae`). The accelerated path re-runs `_coords(a, b, c)`
+(and `_coords(a, b, c, d)`), which finds and names the offending point, before
+the exception propagates.
+
+Tests: `test_contracts.py::TestPredicateDiagnostics` parametrises which argument
+is non-finite and asserts the message names it.
 ---
 
 ## C. Design, contract and typing
@@ -574,6 +772,22 @@ Two specific typing smells worth taking with it:
   this one is a bag. A `Collider` dataclass would match the house style and give
   the caller completion.
 
+**✅ Done** (`9ed47ae`). `mypy --disallow-untyped-defs
+--disallow-incomplete-defs src/opengl_extrusions` reports success, and both
+flags are on in `pyproject.toml` with a comment saying why -- shipping
+`py.typed` while they failed on every entry point is the combination that
+misleads a user. The `typecheck` tox env runs it and CI runs that.
+
+`types.py` grew `Contours`, `Scalars` and `Colors` for the shapes `extrude`'s
+`contour`, `scale`, `twist` and `color` actually take, and its aliases are
+`X | Y` rather than `Union`.
+
+Both typing smells are addressed. `cdt._triangle_leaving` returns an `_Exit`
+named tuple carrying a two-member `_Leaving` enum, so `start.kind is
+_Leaving.VERTEX` replaces `start[0] == 'vertex'` and the checker can see which
+of `vertex` and `(triangle, corner)` is meaningful. `to_collider` returns a
+frozen `Collider` dataclass with `positions`, `indices`, `watertight`, `volume`
+and two derived counts, matching the house style.
 ### C2 — `ruff` is configured for four rule families, and two of them are mostly off
 
 `pyproject.toml:66-71` selects `["E", "W", "F", "B"]`. Ruff implements only the
@@ -599,6 +813,19 @@ deliberately are not.
 `from opengl_extrusions.x import y` with `from opengl_extrusions import x as _x`
 at `mesh.py:41`), `UP`, `SIM`, `RUF` and `C4`. `ARG` alone pays for itself here.
 
+**✅ Done** (`3789ac2`). The selection is now
+`E, W, F, B, ARG, I, UP, SIM, C4, RUF`. `ARG` found exactly what the finding
+predicted: `_rotational_caps`' unused `stations` and `stretch`, `sweep._caps`'
+unused `supplied_normals` and `closed_contour`, and `vrml97._caps`' unused
+`stations` -- all five parameters removed, with a note on `_rotational_caps`
+saying why a cap is *not* stretched to match a mitred tube.
+
+Two families are off, with the reason in the config: `UP031`, because
+diagnostics use `%` formatting throughout as a house style and `%` is not
+deprecated; and `RUF022`, because `__all__` is grouped by what each name is for
+and alphabetical order would cost a reader more than it buys them.
+
+`ruff check .` passes, and the `lint` tox env runs it.
 ### C3 — `ruff format` and this codebase have never met
 
 ```
@@ -615,6 +842,12 @@ wanted, set `[tool.ruff.format] quote-style = "single"` and run it once as a
 single mechanical commit. If it is not, change the `E501` comment to say the line
 length is held by review and re-enable `E501` at 100.
 
+**✅ Done** (`3789ac2`). Settled in favour of running it.
+`[tool.ruff.format] quote-style = "single"` keeps the codebase's own quoting,
+Markdown is excluded so prose keeps its hand-set wrapping, and the whole tree
+was formatted in one mechanical commit with no behaviour change either side.
+`ruff format --check .` is part of the `lint` tox env, so CI holds it.
+The `E501` comment now describes a formatter that exists.
 ### C4 — There is no CI, and the one claim that most needs it is untested in the default run
 
 There is no `.github/`, no `.gitlab-ci.yml`, nothing. `pyproject.toml:82-94`
@@ -650,6 +883,28 @@ developed on 3.12 (`[tool.mypy] python_version = "3.12"`) and 3.10 is never run.
 value item in the review: it turns four of the findings above from "nobody
 noticed" into "cannot land".
 
+**✅ Done** (`04faa64`). The tox matrix moved to `tox.ini`, where
+the `[gh]` table `tox-gh` reads sits beside it, and gained `accel`/`fallback`
+factors: every CPython row runs the suite twice, once with the compiled
+predicates and once with `OPENGL_EXTRUSIONS_NO_ACCEL=1`. `commands_pre` asserts
+which one it got, so a `fallback` env that quietly ran the compiled filter, or
+an `accel` env whose extension failed to build, fails instead of passing while
+testing nothing new. Measured: `predicates.py` is 74% covered in the accelerated
+run and 87% in the fallback one, and the union is what CI checks.
+
+`.github/workflows/test.yml` drives that matrix over 3.10-3.14 and PyPy on every
+pull request, and additionally builds the sdist and installs it under 3.10 --
+which is where `requires-python` and the `gle` extra's pre-release pin are
+claims a user meets.
+
+`.github/workflows/release.yml` calls that workflow on a push to `main`, and
+publishes wheels and an sdist to PyPI when the tests are green *and* the version
+in `__init__.py` is not already there. Wheels carry the compiled predicates
+(`[tool.cibuildwheel]` in `pyproject.toml`, with a `test-command` that refuses a
+wheel whose extension did not build), so an ordinary `pip install` no longer
+needs a toolchain. Publishing is by trusted publishing, and the `if:` gate names
+every result explicitly so a later edit cannot let a red or partial build reach
+an immutable version number.
 ### C5 — Packaging: Cython is a hard build requirement despite the comment saying it is not
 
 `pyproject.toml:2-4`:
@@ -676,6 +931,13 @@ Smaller packaging notes in the same file:
   ever adds. `src/opengl_extrusions/_predicates_native.c` as an explicit entry is
   safer.
 
+**✅ Done** (`04faa64`). The comment now says what is true: Cython
+is required to build, and what is optional is the accelerator it produces, at
+runtime. Every smaller note is addressed too -- the `gle` extra says it needs
+`pip install --pre`; classifiers name 3.10 through 3.14 plus CPython and PyPy;
+and the blanket `*.c` ignore is replaced by
+`src/opengl_extrusions/_predicates_native.c`, so hand-written C added later is
+not swallowed.
 ### C6 — Repository state
 
 - **`.coverage` is tracked in git** (`git ls-files | grep -E '\.coverage'`). It
@@ -691,6 +953,14 @@ Smaller packaging notes in the same file:
   `/workspaces/OpenGL-dev/plans/OPENGL-EXTRUSIONS.md` exists at the workspace
   level, the project's own decisions have nowhere local to live.
 
+**✅ Done** (`04faa64`). `.coverage` is untracked and in
+`.gitignore`, along with `.coverage.*`, `htmlcov/`, `dist/` and `.hypothesis/`.
+The working tree was committed as `a41096d PRE-REVIEW` before this work began,
+so the deleted `api.py` and the six modified files are in history.
+
+`plans/` holds this document and `2026-08-23-opengl-extrusions.md`, the original
+plan moved in from the workspace level -- so the project's decisions have a
+local home, which is what the workspace convention asks for.
 ### C7 — Smaller API-consistency points
 
 | Where | Point |
@@ -718,6 +988,38 @@ Smaller packaging notes in the same file:
 | Throughout | British and American spelling are mixed: `_normalise` beside `'normalized'`, `mitre` in prose beside `miter_limit` in the API, `colour` for locals beside `color` for parameters. `color`/`normalized` are forced by glTF and by GLE; the rest is free. Worth one decision. |
 | `tests/gle/test_parity.py:24` | `os.environ.setdefault('OPENGLCONTEXT_HIDDEN', '1')` — `tools/gle_capture.py` uses glfw directly and never reads that variable, and this package does not depend on OpenGLContext. A leftover. |
 
+**✅ Done** -- every row of the table (`473e750`, `9ed47ae`).
+
+| Row | What was done |
+|---|---|
+| `texcoords.unused` | Deleted. |
+| `levels_of_detail`'s `'sections'` | Dead branch removed. The parameters it can coarsen are one table, `_LOD_PARAMETERS`, holding `sides`, `section_sides` and `tolerance`. |
+| `levels_of_detail` silently returning N identical meshes | Raises, naming the parameters it could have coarsened. One level needs nothing to coarsen and is still allowed. |
+| `cosine_limit` holding degrees | Renamed `angle_limit`. |
+| `refine` classifying twice | The second call is gone; `elif` replaces the unconditional second. |
+| `insert_constraint` recursing per collinear vertex | A work list. `test_invariants.py` inserts a constraint through 1 200 collinear vertices. |
+| `_last_split` annotated in a method body | Declared in `__init__` beside `_last_inserted`, with a comment saying what it is for. |
+| `convex_hull` exported from `cdt` only | Exported from the package and named in `__all__`, with `clean_path`, `FRAME_METHODS`, `Collider`, `smoothing_groups` and `averaged_normals`. |
+| `planar` importing `_scaled_ints` and `_sign` | Public as `scaled_ints` and `sign`, in `predicates.__all__` -- a name reached across modules is not private. |
+| `_ORIENT_BOUND` in four places | One. `predicates.ORIENT_BOUND` is public and `planar` uses it; the `.pyx` computes `2.0 ** -53` rather than writing the literal out, exports its bounds, and `predicates` refuses to import a build whose bounds disagree with its own. |
+| `orient2d_many` reimplementing the filter | It uses `ORIENT_BOUND`, so the decision of what counts as settled is the same one `orient2d` makes; the docstring says why it is written out rather than called per point. |
+| `extrude`'s `contour_normals` shadowing the import | The import is `contour_normals as _contour_normals`. |
+| `spiral`'s undocumented `join` | Documented, as is why `lathe` has no equivalent. `helicoid`, `toroid`, `polycylinder` and `polycone` say where their `**kwargs` go and are annotated `**kwargs: Any`. |
+| `polycone` reporting the cleaned path length | Checked against the path as written, before duplicates are dropped. |
+| `Mesh.merged()` discarding `extras` | Members are recorded under `members`, and every other key is carried forward. |
+| `Primitive.__post_init__` coercing everything to float32 | `_INTEGER_ATTRIBUTES` holds `JOINTS_0` and `JOINTS_1`, which keep their type. |
+| `Primitive.triangles` ignoring `mode` | Raises `MeshError` for anything but a triangle list, so `is_manifold`, `is_watertight` and `signed_volume` cannot answer confidently about a strip. |
+| `frames.__all__` missing `clean_path`; `FRAME_METHODS` unexported | Both fixed. |
+| `_as_contours` rejecting `(K, N, 2)` | Accepted, and documented on the function and in the `Contours` alias. |
+| `round_segments=1` degrading a `round` join | Refused, saying a round join needs at least two facets to turn a corner. |
+| Mixed British and American spelling | Settled: the external vocabulary's spelling where an external vocabulary fixes the word (`color`, `normalized`, `miter_limit`), British elsewhere (`normalise`, `mitre` for the join). `colour` is gone from the source. |
+| `tests/gle/test_parity.py`'s `OPENGLCONTEXT_HIDDEN` | Removed. |
+
+Two rows also fixed behaviour the table did not ask about, and are noted here so
+they are not a surprise: `bspline(closed=True)` passed `closed=False` to
+`_sample_spans`, so it kept the duplicate closing sample that `catmull_rom`
+drops -- the two now agree; and `resample_uniform`'s docstring says what spacing
+it actually achieves, `total / round(total / spacing)`.
 ---
 
 ## D. Tests that do not test what their names claim
@@ -749,6 +1051,28 @@ tests import from `opengl_extrusions` inside the function body
 module level; `test_texcoords.py:72-73` calls `swept('vertex_flat')` twice,
 rebuilding the mesh each time.
 
+**✅ Done** (`677aa8f`). Every row, and the hygiene points with them.
+
+| Test | What it asserts now |
+|---|---|
+| `test_a_sweep_of_several_contours_gives_several_primitives` | Renamed `…_merges_them_into_one_primitive`, and asserts that: one primitive, twice the vertices and twice the triangles of a single-contour sweep. |
+| `test_a_vertex_whose_remembered_triangle_died_is_found_again` | The stale hint is left in place, pointing at a live triangle that does not touch the vertex, so the branch it names is the one taken. The missing-hint branch is a second test of its own. |
+| `test_a_closed_catmull_rom_comes_back_round` | The gap from the last sample to the first is one ordinary step, the ends are not the same point, and an open curve of the same control points does not close. |
+| `test_a_bspline_can_close_on_itself` | The inconsistency it could not see was real: `bspline` passed `closed=False` to `_sample_spans`. Fixed, and `test_contracts.py::test_a_closed_bspline_does_not_repeat_its_closing_sample` holds both curves to the same rule. |
+| `test_positive_and_negative_rules_select_by_direction` | The two rings have areas 1 and 4, so swapping the rules swaps the answers. |
+| `test_path_edge_smooths_along_the_path_as_well` | `<` rather than `<=`, on the corner where there is something to smooth (§B2). |
+| `test_a_crease_angle_smooths_the_surface` | `<` rather than `<=`, and `TestCreaseAngle` beside it covers the field properly (§B1). |
+| `test_the_begin_cap_faces_backward` | Selects the cap's own vertices -- the ones the uncapped sweep does not have, since `merged` concatenates members in order -- and requires `< -0.99` rather than "not positive". |
+| `test_many_crossing_constraints_all_survive` | Renamed `test_the_mesh_stays_consistent_through_constraints_that_cannot_all_fit`, which is what the body checks. |
+| `test_accessors_describe_the_data` | Asserts what the accessors are, and that the POSITION accessor is the one `by_name` holds. |
+| `test_a_polycone_needs_one_radius_per_point` | A genuine length mismatch, matching on the message. The wrong-rank case is a second test. |
+| `test_a_zero_radius_contour_produces_no_area` | Renamed `…_collapses_onto_the_path`; asserts the vertices are on the axis (§A2). |
+| `test_a_transformed_tangent_keeps_its_handedness` | Kept, and joined by `TestMirroring`, where `w` *should* flip (§B3, §B4). |
+
+Hygiene: the stray `(self, )` is gone; the function-body imports in
+`test_cdt.py`, `test_edges.py`, `test_planar.py` and `test_shapes.py` are at
+module level with the rest; `test_texcoords.py` builds each swept mesh once.
+
 ---
 
 ## E. Test-infrastructure gaps
@@ -774,6 +1098,11 @@ code stay in step. `tangents.py:115` carries a `# doctest: +SKIP` on
 `[128, 64, 32]`, which would then be a visible decision rather than an
 invisible one.
 
+**✅ Done** (`04faa64`). `addopts = "-ra --doctest-modules"` with
+`testpaths = ["tests", "src"]`. It caught §A1 immediately. `tangents.py`'s
+`# doctest: +SKIP` came off with it, and the numbers it was hiding were wrong --
+`[128, 64, 32]` is what a tube alone would be, and the real answer with caps is
+`[124, 60, 28]`, which is now checked.
 ### E2 — No property-based testing, in the one domain that most rewards it
 
 `test_tessellate.py:265-283` does the right thing by hand — twelve seeded random
@@ -787,6 +1116,44 @@ total area equals `polygon_area`, every triangle CCW, `check_consistency()`
 passes, and — the one nothing checks today — `is_delaunay()` holds after
 arbitrary sequences of `add_point` / `insert_constraint`.
 
+**✅ Done** (`677aa8f`). `tests/test_properties.py`, with
+`hypothesis` in the `test` extra. Strategies for point sets and for star-shaped
+contours, the latter allotting each vertex one slot of the circle so the ring
+cannot cross itself, and both sweeping coordinates over twelve orders of
+magnitude -- because every threshold here is meant to be relative to the input's
+own size.
+
+The invariants the finding names are all stated: total area equals
+`polygon_area`, every triangle counter-clockwise, `check_consistency()` after
+any sequence of `add_point` and `insert_constraint`, and `is_delaunay()` after
+arbitrary sequences -- the one nothing checked. Refinement is held to covering
+the same outline it started from.
+
+**It found a defect, and not one this review names.** A triangulation of a point
+set is a triangulation of its convex hull, and this one was not: a sliver's
+circumradius grows as its base squared over its height, so for a thin enough
+triangle a super vertex lies inside that circumcircle however far away it was
+placed, the Delaunay answer genuinely prefers the super vertex, and deleting the
+super triangle takes the sliver with it. What came out passed
+`check_consistency`, reported itself Delaunay, and was missing area; downstream
+it surfaced as `TriangulationError: … the mesh does not cover the constraint`
+when tessellating an outline with three nearly collinear points, which is an
+ordinary thing for a sampled curve to have.
+
+No size for the super triangle avoids it. `_covers_its_hull()` asks three exact
+questions -- every vertex is in a triangle, the boundary is one closed loop, and
+that loop never turns clockwise -- and where the answer is no,
+`_rebuild_from_hull()` triangulates again from the convex hull fanned into
+triangles, with every other point inserted into that and nothing at a scale the
+real points are not. Confirmed over 3 000 generated point sets. Pinned by
+`test_invariants.py::TestTheMeshCoversItsHull`, and stated as properties in
+`test_properties.py::TestTheMeshCoversItsHull` -- as questions about the
+boundary rather than as a comparison of areas, since a sum of areas underflows
+on a shape whose vertices are 1e-38 apart and these two questions do not.
+
+`add_point` also gained the `:raises:` it never had: it refuses a point lying
+exactly on a constrained edge, which was deliberate and tested and simply not
+written down.
 ### E3 — Uncovered behaviour worth naming
 
 Coverage is 94 %, and most of the misses carry an honest `# pragma: no cover`
@@ -805,6 +1172,26 @@ are reachable and simply untested:
   This is visible in `docs/images/fig_texture_caps.png` and mentioned nowhere in
   the text.
 
+**✅ Done** (`677aa8f`), item by item.
+
+- `_flip` and the flip branch: reached and tested -- see §B6.
+- The pure-Python predicate filter: run by the `fallback` tox envs on every
+  CPython row in CI. 74% in the accelerated run, 87% in the fallback, and the
+  suite passes under both (§C4).
+- `Mesh.to_gltf` with a material set: `test_mesh.py::TestGLTFMaterials` (§A3).
+- `reversed()` / `transformed()` with tangents or a mirror:
+  `TestTangentFramesSurviveTheirTransforms` and `TestMirroring` (§B3, §B4).
+- `Mesh.transformed` and the `extras` serialisation branch:
+  `test_a_mesh_can_be_transformed_and_reversed_as_a_whole` and
+  `test_extras_are_written_out_and_survive_serialisation`, the latter through
+  NumPy scalars and `json.dumps`.
+- Cap-versus-side texture continuity: `test_a_caps_texture_coordinates_are_its_own`
+  asserts a cap runs 0..1 in *every* texture mode, and
+  `test_arc_length_side_coordinates_are_in_model_units` asserts the sides do
+  not -- so the two spaces differ, deliberately, and the tests say so. Written
+  up in `docs/API.md` under §G.
+
+Coverage is 95% with the accelerator and 96% without.
 ---
 
 ## F. Performance and scaling
@@ -856,6 +1243,35 @@ Two more, smaller:
   is O(n²) with a Python `del` in the inner loop. It is off by default, which is
   why nobody has hit it.
 
+**✅ Done** (`473e750`), and the headline number was not where the review
+thought it was.
+
+1. **`weld.edge_counts`** -- one vectorised pass, shared. `_edge_use` sorts the
+   `(3T, 2)` edge array, packs each pair into a single integer (sorting one
+   column of integers is an order of magnitude cheaper than sorting a column of
+   pairs) and counts with `np.unique`. `is_manifold`, `is_watertight` and
+   `boundary_edges` all read it. **0.52 s to 0.05 s** on 256 k triangles.
+2. **`weld.weld_vertices`** -- the dict keyed by tuples of floats is a
+   lexicographic sort, with the group labels put back into first-appearance
+   order so a welded mesh keeps the vertex order the generator produced.
+   **0.25 s to 0.05 s**. `to_collider` also welds once now, on positions alone,
+   as its docstring said.
+3. **Refinement scaling** -- fixed, and by something else. The cost was
+   `_segment_arrays` rebuilding the entire vertex array to read two rows of it,
+   once per inserted point, because refinement invalidates that array every
+   time. Gathering the segment ends from `self._pts` directly makes refinement
+   linear: **4.1x the triangles now costs 4.1x the time**, where it cost 5x
+   before, and throughput is **24 000 triangles/second against 10 000**.
+   `_encroached_by` is 8% of a refinement now, so the grid or interval index the
+   finding proposes is not warranted -- the measurement that suggested it was
+   measuring the rebuild.
+
+Both smaller ones are done too. `generate_tangents` accumulates with
+`np.bincount` rather than six `np.add.at` calls. `_drop_collinear` is a linked
+ring with a work list, so removing a point re-checks only its two neighbours
+instead of restarting the scan: **4 000 points in 4 ms**, where it was
+quadratic with a Python `del` in the inner loop.
+
 ### F1 — `_CONTOUR_NORMAL_CACHE` is an unbounded module-level leak
 
 [`sweep.py:684-694`](../src/opengl_extrusions/sweep.py#L684-L694):
@@ -881,6 +1297,11 @@ normals once per station.
 before the strip loop, and pass them into `_station_uv`. That removes both the
 cache and the `id()` keying, and is strictly less code.
 
+**✅ Done** (`473e750`). The cache is gone, not tightened. The
+contour's normals are computed once in `build_from_stations`, before the strip
+loop, and passed into `_station_uv` -- which removes the `id()` keying, the
+strong reference and the module-level state together, and is less code, as the
+finding says.
 ---
 
 ## G. Documentation
@@ -915,6 +1336,36 @@ published specification is the preferred source, and no clean-room concern
 arises), but a short `specs/SPEC-VRML97-EXTRUSION.md` recording *which* clauses
 were relied on, and what each one says the node does, would let the ccw/cap/
 crease-angle questions above be settled by reference rather than by argument.
+
+**✅ Done**, every row and the structural note.
+
+| Where | What was done |
+|---|---|
+| `README.md:12-13` | The example runs, and a second beside it shows `frames='rmf'` (§A1). The install section says Cython is needed to build from source, that wheels carry the accelerator, and that the `gle` extra needs `--pre`. |
+| `docs/API.md`, VRML97 table | `crease_angle` now says what it is: a threshold in radians, normals generated from the faces per clause 6.23, and a default of zero meaning a faceted surface (§B1). |
+| `docs/API.md`, normal-modes table | `path_edge` says what it averages and that a straight run has nothing to average. `mesh.smoothed(crease_angle)` is documented beside it, since the same operation is now available on its own (§B2). |
+| `docs/GLE-PARITY.md`, `TUBE_NORM_PATH_EDGE` | Says what both do, and that the parity test does not cover it — the feedback buffer records where a vertex was drawn, not which way it faced. |
+| `docs/GLE-PARITY.md`, "Checking it" | Rewritten as what it is: a convention for a case that has not arisen, with the reason none is committed. The section also now says plainly that the test compares geometry and not shading. |
+| `docs/API.md`, serialisation row | `to_gltf()` returns glTF and nothing else, and the material rule is stated (§A3). `mesh.smoothed` is in the table; `to_collider` says it returns a `Collider`; the `MeshError` row names the four new reasons. |
+| `docs/API.md`, cap UVs | A cap runs 0..1 in every texture mode, so cap and side coordinates are in different spaces — stated, with the reason, and with what to do if you need continuity across the rim. |
+| `docs/API.md:196` | The viewer is named with its path and with the fact that it is in a different repository. |
+| `cdt.py:158-160` | The comment describes what `_created` does, which is now the watermark it always claimed (§B7). |
+| `sweep.py:654` | The comment describes a test that is genuinely relative, and says what an absolute floor would do (§A2). |
+| `sweep.py:692-694` | Gone with the cache (§F1). |
+| `mesh.py:78` | `_as_float32` says it copies only where it must, and what "must" means. |
+| `curves.py:178-183` | `resample_uniform` states the spacing it achieves and why: `total / round(total / spacing)`. |
+| `shapes.py:196-217` | `spiral`'s `join` is documented, as is why `lathe` has none. |
+| `vrml97.py:83-132` | The docstring says caps are skipped for an open cross-section, and cites the clause. |
+
+**The structural note is addressed.** `specs/SPEC-VRML97-EXTRUSION.md` records
+the clauses `vrml97_extrusion` is built from and what each says the node does --
+the construction, the cross-section's plane, the collinear cases, closure by a
+repeated point, capping, `ccw`, `creaseAngle`, and `scale`/`orientation` -- and
+also what this library deliberately does not implement (`solid` and `convex`,
+both of which are a renderer's decisions). `vrml97.py` cites it by section,
+`docs/API.md` and `README.md` link it. No clean-room split was needed and the
+file says why: a published specification is the preferred source, and there is
+no implementation to be tainted by.
 
 ---
 
@@ -969,7 +1420,44 @@ ones recurring.
 
 ---
 
-*Every measurement in this document was taken on 2026-08-23 against the working
-tree at commit `1c6a47d` plus the uncommitted changes noted in §C6, using
-`/workspaces/OpenGL-dev/.venv` (Python 3.12.3, the compiled predicates built and
-in use unless stated otherwise).*
+*Every measurement in the findings above was taken on 2026-08-23 against the
+working tree at commit `1c6a47d` plus the uncommitted changes noted in §C6,
+using `/workspaces/OpenGL-dev/.venv` (Python 3.12.3, the compiled predicates
+built and in use unless stated otherwise).*
+
+---
+
+## Remediation
+
+Every finding above carries its own status. The work landed on 2026-08-24 in
+seven commits on top of `a41096d PRE-REVIEW`, each named for the sections it
+covers:
+
+| Commit | Sections |
+|---|---|
+| `04faa64` | §C4, §C5, §C6, §E1, §A1 — CI, packaging, doctests, the headline example |
+| `3789ac2` | §C2, §C3 — the linter and the formatter, mechanically |
+| `1843f20` | §A2, §A3, §B3, §B4, §B5, §B12 — the silent-wrong-output defects |
+| `56293c8` | §A4, §B1, §B2 — `caps='auto'`, `crease_angle`, `path_edge` |
+| `473e750` | §B7-§B10, §C7, §F — the triangulator's bookkeeping and the cost it hid |
+| `9ed47ae` | §B11, §B13, §B14, §B15, §C1, §C7 — contracts, typing, API consistency |
+| `677aa8f` | §D, §E2 — the misleading tests, and the property tests |
+
+**Where it stands.** 736 tests (from 570), passing with the compiled predicates
+and with the pure ones. `ruff check`, `ruff format --check` and
+`mypy --disallow-untyped-defs` are all clean, and all three are tox envs that CI
+runs. Coverage is 95% accelerated, 96% pure.
+
+**Three things worth knowing that this review did not ask for.**
+
+- **§B6's question has an answer: reachable.** `_flip` is reached about once in
+  two hundred degenerate point sets, and a five-point case is pinned for it.
+  Nothing was deleted.
+- **§E2 found a defect in the triangulator**, which is what it was for. The mesh
+  did not always cover its vertices' convex hull, and could not always take a
+  constraint as a result. Written up under §E2 and fixed.
+- **§F's third item was not where it looked.** Refinement's superlinear scaling
+  was §B8's cache rebuilding the whole vertex array once per inserted point, not
+  `_encroached_by` testing every segment. With that fixed the scaling is linear
+  and `_encroached_by` is 8% of a refinement, so no spatial index was built. The
+  numbers are under §F.

@@ -269,88 +269,100 @@ class Triangulation:
         vertex, and the sliver leaves with it. No fixed size for the super
         triangle avoids this; only filling afterwards does.
 
-        Two things are put back, in this order, because the second needs what
-        the first leaves behind:
-
-        *Cut the notches.* The boundary is walked with the mesh on its left, so a
-        corner that turns clockwise is a notch the hull does not have. Cutting
-        one off adds a triangle and removes a boundary vertex, so the pass ends,
-        and what it ends at is convex.
-
-        *Re-attach what was lost altogether.* A vertex can be left in no triangle
-        at all, which is the same failure one step further on. Fanning it to
-        every boundary edge it can see is the convex hull of the boundary and
-        that vertex -- so the boundary stays convex and the next one can be
-        added the same way.
+        What the mesh should be is cheap to check and awkward to patch, so it is
+        checked and, where it fails, built again without a super triangle to
+        lose anything to: the convex hull fanned into triangles, every other
+        point inserted into that, and one restoration pass. The rebuild is only
+        ever reached by input thin enough to have provoked the loss.
         """
-        made = self._cut_reflex_corners()
-        made.extend(self._attach_lost_vertices())
-        if made:
-            self.restore_delaunay(made)
+        if self._covers_its_hull():
+            return
+        self._rebuild_from_hull()
 
-    def _cut_reflex_corners(self) -> list[int]:
-        """Fill every clockwise turn of the boundary, leaving it convex."""
-        following = self._boundary_loop()
-        if len(following) < 3:
-            return []
-        preceding = {v: u for u, v in following.items()}
-        made: list[int] = []
-        corners = list(following)
-        while corners and len(following) > 3:
-            b = corners.pop()
-            a, c = preceding.get(b, -1), following.get(b, -1)
-            if a < 0 or c < 0 or a == c:
-                continue
-            if orient2d(self._pts[a], self._pts[b], self._pts[c]) >= 0:
-                continue
-            made.append(self._add_triangle(a, c, b))
-            del following[b], preceding[b]
-            following[a], preceding[c] = c, a
-            # `a` and `c` are the only corners whose answer can have changed.
-            corners.extend((a, c))
-        return made
+    def _covers_its_hull(self) -> bool:
+        """Whether the mesh is a triangulation of its vertices' convex hull.
 
-    def _attach_lost_vertices(self) -> list[int]:
-        """Bring back any vertex the mesh no longer has a triangle for."""
+        Three questions, none of them needing the hull itself: every vertex is
+        in a triangle, the boundary is one closed loop, and that loop never
+        turns clockwise. A convex boundary that encloses every vertex *is* the
+        hull, so the three together settle it -- and each is exact, where
+        comparing areas would lose a sliver to rounding.
+        """
+        if not self._edge:
+            return len(convex_hull(self.points)) < 3
         held = {v for verts in self._tri if verts is not None for v in verts}
-        lost = [v for v in range(len(self._pts)) if v not in held]
-        if not lost:
-            return []
-        made: list[int] = []
-        for v in lost:
-            following = self._boundary_loop()
-            if not following:  # pragma: no cover - needs an empty mesh
-                break
-            p = self._pts[v]
-            visible = [
-                (a, b) for a, b in following.items() if orient2d(self._pts[a], self._pts[b], p) < 0
-            ]
-            if not visible:
-                # Inside the boundary rather than beyond it, so the ordinary
-                # insertion knows what to do with it.
-                self._insert_point(v)
-                made.extend(self._last_inserted)
+        if len(held) < len(self._pts):
+            # A vertex repeated in the input is represented by whichever copy
+            # was inserted first; the others are the same point, not a loss.
+            places = {tuple(self._pts[v]) for v in held}
+            if any(tuple(p) not in places for p in self._pts):
+                return False
+        loop = self._boundary_loop()
+        if len(loop) < 3:
+            return False
+        # One closed loop: following it from anywhere returns to the start
+        # having visited every boundary edge. Two components, or a boundary
+        # pinched at a vertex, come back early.
+        start = next(iter(loop))
+        walked, current = 1, loop[start]
+        while current != start:
+            current = loop.get(current, start)
+            walked += 1
+            if walked > len(loop):  # pragma: no cover - the dict cannot loop longer
+                return False
+        if walked != len(loop):
+            return False
+        return all(
+            orient2d(self._pts[a], self._pts[b], self._pts[loop[b]]) >= 0 for a, b in loop.items()
+        )
+
+    def _rebuild_from_hull(self) -> None:
+        """Triangulate again, starting from the convex hull rather than a box.
+
+        Every triangle goes, the hull is fanned from its first vertex, and the
+        remaining points are inserted into that. Nothing here is at a scale the
+        real points are not, so no in-circle test can prefer a vertex that is
+        about to be deleted -- which is the whole of what went wrong.
+        """
+        for t in self.triangle_indices:
+            self._remove_triangle(t)
+        self._edge.clear()
+        self._vertex_tri.clear()
+        self._last = -1
+        hull = [int(v) for v in convex_hull(self.points)]
+        if len(hull) < 3:
+            # Collinear, or fewer than three distinct points: no triangles is
+            # the right answer and is what is left.
+            return
+        for i in range(1, len(hull) - 1):
+            self._add_triangle(hull[0], hull[i], hull[i + 1])
+        self._last = self._any_triangle()
+        on_hull = set(hull)
+        seen: set[tuple[float, float]] = {tuple(self._pts[v]) for v in hull}
+        for v in range(len(self._pts)):
+            if v in on_hull:
                 continue
-            made.extend(self._add_triangle(b, a, v) for a, b in visible)
-        return made
+            place = tuple(self._pts[v])
+            if place in seen:
+                continue
+            seen.add(place)
+            self._insert_point(v)
+        self.restore_delaunay()
 
     def _boundary_loop(self) -> dict[int, int]:
         """Each boundary vertex mapped to the next one round, mesh on the left.
 
         An edge with no triangle on its far side is a boundary edge, and its own
         triangle is on its left -- so following these edges walks the outside of
-        the mesh anticlockwise. A vertex reached by two boundary edges would make
-        this ambiguous; that is a pinched mesh, and the walk is abandoned rather
-        than guessed at.
+        the mesh anticlockwise. A vertex that two boundary edges leave from
+        cannot be represented here; :meth:`_covers_its_hull` is what notices,
+        since the walk it does then comes back early.
         """
-        following: dict[int, int] = {}
-        for (u, v), t in self._edge.items():
-            if self._tri[t] is None or (v, u) in self._edge:
-                continue
-            if u in following:  # pragma: no cover - a pinched boundary only
-                return {}
-            following[u] = v
-        return following
+        return {
+            u: v
+            for (u, v), t in self._edge.items()
+            if self._tri[t] is not None and (v, u) not in self._edge
+        }
 
     # -- the mesh ---------------------------------------------------------
 

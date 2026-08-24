@@ -40,7 +40,7 @@ documentation and from black-box measurement instead.
 | `TUBE_CONTOUR_CLOSED` | `closed_contour` | Exact | |
 | `TUBE_NORM_FACET` | `normals='facet'` | Equivalent | |
 | `TUBE_NORM_EDGE` | `normals='edge'` | Equivalent | |
-| `TUBE_NORM_PATH_EDGE` | `normals='path_edge'` | Equivalent | |
+| `TUBE_NORM_PATH_EDGE` | `normals='path_edge'` | Equivalent | Both average the normals a shared ring carries. Not covered by the parity test, which compares positions: the feedback buffer records where a vertex was drawn, not which way it faced |
 | `gleSetNumSides` | `sides=` | Exact | Per call rather than global (SPEC §8) |
 | The twelve `gleTextureMode` modes | `texture='vertex_cyl'` etc. | Equivalent | All twelve implemented, formulae measured from GLE; the seam differs, below |
 | — | `frames='rmf'`, splines, closed paths, tangents, LOD, colliders | New | GLE has no equivalent |
@@ -117,6 +117,14 @@ cleanly without them. It **calls GLE** and compares against freshly generated
 geometry rather than against stored numbers: a match needs nothing stored,
 because the comparison just happened.
 
-A committed `.npz` under `tests/gle/data/` therefore means one thing — a case
-where the two once disagreed, pinned so it cannot drift unnoticed, and carrying
-the decision that goes with it.
+If the two ever disagree, the case is to be pinned as a committed `.npz` under
+`tests/gle/data/`, carrying the decision that goes with it — a stored number
+here would mean "the two once disagreed", and nothing else. There are none: the
+comparison has always been live.
+
+**The parity test compares geometry, not shading.** `tools/gle_capture.py` reads
+the GL feedback buffer, which records where a vertex was drawn; a normal is
+recovered only where lighting makes it recoverable. So the normal-mode rows
+above rest on the specification in
+[specs/SPEC-GLE-GEOMETRY.md](../specs/SPEC-GLE-GEOMETRY.md) rather than on a
+measurement, and say so.

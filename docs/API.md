@@ -42,7 +42,7 @@ The general sweep. Every other generator is this with its parameters worked out.
 | `join` | `'angle'` | `'raw'`, `'angle'`, `'cut'`, `'round'` |
 | `miter_limit` | `4.0` | how far a mitre may stretch before the corner bevels instead |
 | `round_segments` | `4` | facets in a `'round'` join |
-| `caps` | `True` | `True`, `False`, `'begin'`, `'end'` |
+| `caps` | `'auto'` | `'auto'`, `True`, `False`, `'begin'`, `'end'`, `'both'` |
 | `closed_contour` | `True` | whether the outline's last point joins its first |
 | `closed_path` | `False` | whether the path loops, giving a shape with no ends |
 | `normals` | `'edge'` | `'facet'`, `'edge'`, `'path_edge'` |
@@ -128,6 +128,13 @@ across the face whatever its shape: a round cap, a square one, a star, and one
 with a hole in it. The last two are the same star refined by area and by angle —
 refinement adds vertices but does not move the mapping.*
 
+**A cap's coordinates run 0..1 whatever `texture` mode was asked for**, because a
+cap has no "along the path" to measure and a flat face wants its own square of
+the texture. Cap and side coordinates are therefore in different spaces, and a
+texture that continues across the rim is not something this produces. Where you
+need one, texture the sides and the caps as separate primitives — build the sweep
+with `caps=False` and tessellate the outline yourself.
+
 These formulae were established by measuring what GLE emits, not by reading its
 source — see [GLE-PARITY.md](GLE-PARITY.md) and
 [SPEC-GLE-GEOMETRY.md](../specs/SPEC-GLE-GEOMETRY.md). Two things to know:
@@ -190,7 +197,28 @@ visually as well.*
 
 **`edge` is the default and usually the right answer**: it keeps the outline's
 curves smooth and the path's corners sharp, which is what most swept shapes
-mean. Run `tests/extrusions_normals.py` in OpenGLContext to compare them.
+mean.
+
+`path_edge` averages the two normals a shared ring carries — the one the
+surface arrives at the corner with and the one it leaves with — and welds on the
+result, so a bend shades as a curve. On a straight run there is nothing to
+average and it produces what `edge` does.
+
+The same averaging is available on its own, for a mesh assembled from pieces or
+one whose creases you want to choose after the fact:
+
+```python
+smooth = mesh.smoothed(crease_angle=numpy.pi)     # every seam
+partial = mesh.smoothed(crease_angle=numpy.radians(45))
+```
+
+A seam whose two normals differ by less than `crease_angle` radians is averaged
+into one; a sharper one is left alone. Zero changes nothing, `pi` or more smooths
+every seam there is.
+
+The OpenGLContext repository has a viewer for comparing the three side by side,
+at `openglcontext/tests/extrusions_normals.py` — a different repository from
+this one.
 
 ## Rotational sweeps
 
@@ -232,7 +260,7 @@ height.
 | `start_angle` | `0.0` | where it begins |
 | `sweep_angle` | `2π` | how far it goes; may exceed a turn |
 | `sides` | `20` | facets per full turn |
-| `caps` | `'auto'` | cap the cut ends unless the sweep closes on itself |
+| `caps` | `'auto'` | cap the cut ends unless the sweep closes on itself, or the contour is open |
 | `mitre` | `True` (lathe) | stretch each ring so consecutive facets meet cleanly |
 
 `helicoid(section_radius, …)` is `lathe` of a circle; `toroid(section_radius, …)`
@@ -293,7 +321,16 @@ inside out — consistently, sides and caps together.
 | `orientation` | axis-angle `(x, y, z, radians)`, one or one per point |
 | `begin_cap`, `end_cap` | `True`; ignored for a closed spine, which has no ends |
 | `ccw` | `True` — which way the surface faces |
-| `crease_angle` | `0.0` — above zero, the surface smooths |
+| `crease_angle` | `0.0` — see below |
+
+`crease_angle` is in radians, and is a threshold rather than a switch: an edge
+whose two faces meet at less than it is shaded smoothly across, and one that
+meets at more keeps its lighting discontinuity. The normals are generated from
+the faces, as ISO/IEC 14772-1 clause 6.23 requires, so **the default of `0.0`
+gives a faceted surface** — which is what VRML97's own default asks for. `pi` or
+more smooths every edge there is. See
+[specs/SPEC-VRML97-EXTRUSION.md](../specs/SPEC-VRML97-EXTRUSION.md) for which
+clauses this node is built from.
 
 ## Curves
 
@@ -376,7 +413,14 @@ does anything else that speaks glTF's vocabulary.
 | `primitive.is_watertight()` | whether the surface is closed |
 | `primitive.signed_volume()` | what it encloses; negative means inside out |
 | `primitive.surface_area()` | total area |
+| `mesh.smoothed(crease_angle)` | average the normals of seams shallower than the angle, then weld |
 | `mesh.to_gltf()`, `mesh.to_glb(path)`, `mesh.to_glb_bytes()` | serialise |
+
+`to_gltf()` returns a glTF 2.0 document and nothing else — every key in it is one
+the specification defines. `primitive.material` indexes `mesh.materials`; a mesh
+that leaves `materials` empty and uses the index only to group its primitives
+gets default PBR materials written for it, and one that supplies materials gets a
+`MeshError` for an index outside them.
 
 And, from `opengl_extrusions.tangents`:
 
@@ -384,7 +428,7 @@ And, from `opengl_extrusions.tangents`:
 |---|---|
 | `with_tangents(mesh)` | add glTF `TANGENT`, for normal mapping |
 | `levels_of_detail(generator, levels, **parameters)` | the same shape, progressively coarser |
-| `to_collider(mesh)` | welded positions and indices for a physics engine, plus whether it is solid |
+| `to_collider(mesh)` | a `Collider`: welded positions and indices for a physics engine, plus `watertight` and `volume` |
 
 ## Errors
 
@@ -393,7 +437,7 @@ And, from `opengl_extrusions.tangents`:
 | `SweepError` | a path of fewer than two distinct points; caps asked for where they cannot be built |
 | `FrameError` | a path parallel to `up` under `frames='up'` |
 | `CurveError` | too few control points, a non-positive tolerance |
-| `MeshError` | a mesh that could not be drawn — mismatched attributes, an index out of range |
+| `MeshError` | a mesh that could not be drawn — mismatched attributes, an index out of range, vertices with no triangles, a singular transform, a material index nothing defines |
 | `TriangulationError` | a constraint crossing another constraint |
 | `NonFinitePointError` | a NaN or an infinity anywhere |
 | `ValueError` | everything else malformed; all of the above are subclasses of it or of `RuntimeError` |

@@ -355,6 +355,34 @@ class TestTextureCoordinates:
     def test_texture_coordinates_can_be_left_out(self):
         assert extrude(circle(1.0, 8), STRAIGHT, texture=None).primitives[0].texcoords is None
 
+    def test_a_caps_texture_coordinates_are_its_own(self):
+        """A cap is mapped from its own bounding box, in every texture mode.
+
+        So cap and side coordinates are in different spaces, and a texture that
+        continues across the rim is not something this produces. That is a
+        limit worth knowing rather than a defect: a cap has no "along the path"
+        to measure, and a flat face wants its own square of the texture.
+        """
+        for mode in ('normalized', 'arc_length'):
+            tube = extrude(circle(1.0, 16), [(0, 0, 0), (0, 0, 2)], texture=mode, caps=False)
+            capped = extrude(circle(1.0, 16), [(0, 0, 0), (0, 0, 2)], texture=mode, caps=True)
+            uv = capped.primitives[0].texcoords
+            cap_uv = uv[tube.vertex_count :]
+            assert cap_uv.min() == pytest.approx(0.0, abs=1e-6)
+            assert cap_uv.max() == pytest.approx(1.0, abs=1e-6)
+
+    def test_arc_length_side_coordinates_are_in_model_units(self):
+        """Which is what makes the caps' 0..1 a different space rather than a
+        different scale of the same one."""
+        ring = circle(1.0, 16)
+        p = extrude(ring, [(0, 0, 0), (0, 0, 2)], texture='arc_length', caps=False).primitives[0]
+        # u is distance travelled around the contour, so it runs from zero to
+        # the perimeter less the closing edge -- not round to the perimeter,
+        # which would put the seam's two coordinates at the same place.
+        edges = np.linalg.norm(np.roll(ring, -1, axis=0) - ring, axis=1)
+        assert p.texcoords[:, 0].max() == pytest.approx(edges.sum() - edges[-1], rel=1e-6)
+        assert p.texcoords[:, 1].max() == pytest.approx(2.0, abs=1e-6)
+
     def test_an_unknown_texture_mode_is_refused(self):
         with pytest.raises(ValueError):
             extrude(circle(1.0, 8), STRAIGHT, texture='marble')

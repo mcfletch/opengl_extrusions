@@ -20,6 +20,9 @@ Two cases the rule cannot answer on its own, and what the specification says to
 do about them: where three spine points are collinear the Z axis is zero, and the
 Z of the nearest point that has one is used instead; where *every* point is
 collinear, the whole spine takes one arbitrary but consistent plane.
+
+Which clauses this node is built from, and what each one says, is recorded in
+``specs/SPEC-VRML97-EXTRUSION.md``; the code below cites it by section.
 """
 
 from __future__ import annotations
@@ -155,7 +158,8 @@ def vrml97_extrusion(
     if crease_angle < 0:
         raise ValueError('creaseAngle must not be negative, got %r' % (crease_angle,))
 
-    # "The last point repeats the first" is a claim about the file's own
+    # SPEC-VRML97-EXTRUSION §4. "The last point repeats the first" is a claim
+    # about the file's own
     # numbers, so the test is exact. `np.allclose` defaults to a relative
     # tolerance of 1e-5, which on a model whose coordinates are around a million
     # welds a ten-unit gap shut and then skips the caps the author asked for.
@@ -200,8 +204,9 @@ def vrml97_extrusion(
         normals = flat[:, 0:1] * basis_x + flat[:, 1:2] * basis_z
         stations.append(Station(points, normals, travelled, connect=closed_spine or i < steps - 1))
 
-    # VRML97 generates this node's normals from the faces, with ``creaseAngle``
-    # deciding which edges between them are smoothed -- so the surface starts
+    # SPEC-VRML97-EXTRUSION §7: this node's normals are generated from the
+    # faces, with ``creaseAngle`` deciding which edges between them are
+    # smoothed -- so the surface starts
     # faceted, one normal per quad, and the smoothing below is what softens it.
     # Starting from the contour's own normals would be smoother but would leave
     # ``creaseAngle`` nothing to decide, since the surface would already be

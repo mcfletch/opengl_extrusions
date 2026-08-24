@@ -80,12 +80,17 @@ pip install opengl_extrusions
 ```
 
 **NumPy is the only runtime dependency.** The code is Python and NumPy with one
-exception: where a compiler is present, the geometric predicates' inner loop is
-also built as a small Cython extension. Without one, the pure-Python
-implementation of the same predicates is used and everything behaves
-identically — the two are required to produce the same triangles, and the test
-suite runs both. `opengl_extrusions.predicates.ACCELERATED` says which is in
-use; `OPENGL_EXTRUSIONS_NO_ACCEL=1` forces the pure path.
+exception: the geometric predicates' inner loop is also built as a small Cython
+extension. Published wheels carry it. Building from source needs Cython, which
+pip installs for the build; where there is no C compiler the extension is
+skipped and the pure-Python implementation of the same predicates is used, and
+everything behaves identically — the two are required to produce the same
+triangles, and the test suite runs both on every supported Python.
+`opengl_extrusions.predicates.ACCELERATED` says which is in use;
+`OPENGL_EXTRUSIONS_NO_ACCEL=1` forces the pure path.
+
+The optional `gle` extra, which only the parity tests use, pins a pre-release of
+PyOpenGL, so it needs `pip install --pre 'opengl_extrusions[gle]'`.
 
 ## Documentation
 
@@ -93,7 +98,8 @@ use; `OPENGL_EXTRUSIONS_NO_ACCEL=1` forces the pure path.
 - [docs/TESSELLATION.md](docs/TESSELLATION.md) — the tessellator, in detail
 - [docs/CURVES.md](docs/CURVES.md) — splines and adaptive sampling
 - [docs/GLE-PARITY.md](docs/GLE-PARITY.md) — how this compares to the GLE tubing library
-- [specs/SPEC-GLE-GEOMETRY.md](specs/SPEC-GLE-GEOMETRY.md) — the measured facts the parity rests on
+- [specs/SPEC-GLE-GEOMETRY.md](specs/SPEC-GLE-GEOMETRY.md) — the measured facts the GLE parity rests on
+- [specs/SPEC-VRML97-EXTRUSION.md](specs/SPEC-VRML97-EXTRUSION.md) — the ISO/IEC 14772-1 clauses the `Extrusion` node is built from
 
 ## Design
 
