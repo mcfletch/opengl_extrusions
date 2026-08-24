@@ -308,6 +308,18 @@ class TestPerVertexParameters:
         with pytest.raises(ValueError):
             extrude(circle(1.0, 8), STRAIGHT, scale=[1.0, 2.0, 3.0])
 
+    @pytest.mark.parametrize('what', ['scale', 'twist'])
+    @pytest.mark.parametrize('bad', [float('nan'), float('inf'), float('-inf')])
+    def test_a_non_finite_scalar_is_refused_at_the_boundary(self, what, bad):
+        """Every other input path refuses these where they come in, rather than
+        producing a mesh whose positions are NaN."""
+        with pytest.raises(ValueError):
+            extrude(circle(1.0, 8), STRAIGHT, caps=False, **{what: bad})
+
+    def test_a_non_finite_colour_is_refused(self):
+        with pytest.raises(ValueError):
+            extrude(circle(1.0, 8), STRAIGHT, caps=False, color=float('nan'))
+
     def test_a_two_value_scale_on_a_four_point_path_means_x_and_y(self):
         """Ambiguity resolved in favour of per-component when the counts differ."""
         mesh = extrude(circle(1.0, 16), STRAIGHT, scale=[2.0, 0.5], caps=False)
@@ -366,9 +378,69 @@ class TestDegenerateInput:
         mesh = extrude(circle(0.2, 8), path, join='raw', caps=False)
         assert np.isfinite(mesh.primitives[0].positions).all()
 
-    def test_a_zero_radius_contour_produces_no_area(self):
+    def test_a_zero_radius_contour_collapses_onto_the_path(self):
+        """No area because the surface is a line, not because triangles vanished.
+
+        A radius of zero puts every vertex on the path itself, so ``surface_area``
+        alone cannot tell the correct answer from one where a scale-dependent
+        filter threw the triangles away -- the vertices are what distinguishes
+        them.
+        """
         mesh = extrude(circle(0.0, 8), STRAIGHT, caps=False)
-        assert mesh.primitives[0].surface_area() == pytest.approx(0.0)
+        p = mesh.primitives[0]
+        assert p.vertex_count > 0
+        assert np.allclose(p.positions[:, :2], 0.0)
+        assert p.surface_area() == pytest.approx(0.0)
+
+
+class TestScaleIndependence:
+    """A shape authored in millimetres must come out the same as one in metres.
+
+    Every threshold the sweep applies is relative to the geometry it is applied
+    to, so the only thing that changes with the unit is the numbers.
+    """
+
+    @staticmethod
+    def _tube(unit):
+        return extrude(
+            circle(radius=unit, sides=8), [(0, 0, 0), (0, 0, unit)], caps=False
+        ).primitives[0]
+
+    @pytest.mark.parametrize('unit', [1e-6, 1e-3, 1.0, 1e3, 1e6])
+    def test_a_tube_has_the_same_triangles_at_every_scale(self, unit):
+        assert self._tube(unit).triangle_count == self._tube(1.0).triangle_count
+
+    @pytest.mark.parametrize('unit', [1e-6, 1e-3, 1.0, 1e3, 1e6])
+    def test_a_tube_has_the_same_area_relative_to_its_own_size(self, unit):
+        reference = self._tube(1.0).surface_area()
+        # Area is two-dimensional, so it scales with the square of the unit.
+        assert self._tube(unit).surface_area() / unit**2 == pytest.approx(reference, rel=1e-4)
+
+    def test_a_millimetre_scale_part_is_not_silently_empty(self):
+        """The failure this guards: a mesh that validates, reports vertices and
+        draws nothing."""
+        p = self._tube(1e-6)
+        assert p.vertex_count > 0
+        assert p.triangle_count > 0
+        p.validate()
+
+
+class TestValidateCatchesSilentEmptiness:
+    def test_a_triangle_primitive_with_vertices_and_no_indices_is_refused(self):
+        from opengl_extrusions.mesh import MeshError, Primitive
+
+        p = Primitive(
+            {'POSITION': np.zeros((6, 3), dtype=np.float32)}, np.zeros(0, dtype=np.uint32)
+        )
+        with pytest.raises(MeshError):
+            p.validate()
+
+    def test_a_primitive_with_neither_vertices_nor_indices_is_accepted(self):
+        from opengl_extrusions.mesh import Primitive
+
+        Primitive(
+            {'POSITION': np.zeros((0, 3), dtype=np.float32)}, np.zeros(0, dtype=np.uint32)
+        ).validate()
 
     def test_a_vertical_path_works_with_rotation_minimizing_frames(self):
         mesh = extrude(circle(0.5, 16), [(0, 0, 0), (0, 2, 0)], frames='rmf')

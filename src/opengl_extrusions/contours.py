@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from opengl_extrusions.planar import RELATIVE_TOLERANCE
 from opengl_extrusions.types import Vector
 
 __all__ = [
@@ -84,9 +85,20 @@ def rounded_rectangle(
     ``radius`` is clamped to half the shorter side, so asking for a radius larger
     than the shape gives a stadium or a circle rather than an error.
     ``segments`` is the number of straight pieces in each corner arc.
+
+    :raises ValueError: for a width or height that is not positive, in the same
+        terms :func:`rectangle` uses -- the two builders make the same shape and
+        agree about what a size is.
     """
+    if width <= 0 or height <= 0:
+        raise ValueError(
+            'rounded_rectangle needs a positive width and height, got %r x %r' % (width, height)
+        )
     if radius <= 0:
         return rectangle(width, height, centre)
+    # Clamped only after the size is known to be positive: clamping first turns a
+    # negative width into a negative radius, which draws the corner arcs backwards
+    # and gives a ring that crosses itself.
     radius = min(float(radius), width * 0.5, height * 0.5)
     hw, hh = width * 0.5 - radius, height * 0.5 - radius
     cx, cy = float(centre[0]), float(centre[1])
@@ -100,9 +112,13 @@ def rounded_rectangle(
         )
     ring = np.concatenate(points, axis=0)
     # Consecutive corner arcs meet exactly where one ends and the next begins;
-    # drop the repeat so the ring has no zero-length edges.
+    # drop the repeat so the ring has no zero-length edges. The test is relative
+    # to the shape's own size -- an absolute epsilon here would delete every edge
+    # of a rectangle authored in a small unit, and this API has no unit.
+    span = ring.max(axis=0) - ring.min(axis=0)
+    epsilon = float(np.hypot(span[0], span[1])) * RELATIVE_TOLERANCE
     keep = np.ones(len(ring), dtype=bool)
-    keep[1:] = (np.abs(np.diff(ring, axis=0)) > 1e-15).any(axis=1)
+    keep[1:] = (np.abs(np.diff(ring, axis=0)) > epsilon).any(axis=1)
     return ring[keep]
 
 

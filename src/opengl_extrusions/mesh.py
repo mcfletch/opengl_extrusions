@@ -173,8 +173,11 @@ class Primitive:
         """Raise :class:`MeshError` unless this primitive can actually be drawn.
 
         Checks that positions exist and are finite, that every attribute is the
-        right width and the same length as the positions, and that the indices
-        are whole triangles pointing at vertices that exist.
+        right width and the same length as the positions, that the indices are
+        whole triangles pointing at vertices that exist, and that a primitive
+        with vertices has triangles to draw with them -- an empty index buffer
+        over a full vertex buffer draws nothing while looking like geometry, and
+        is the one fault a caller cannot see from the outside.
         """
         if 'POSITION' not in self.attributes:
             raise MeshError('primitive has no POSITION attribute')
@@ -200,6 +203,10 @@ class Primitive:
                 raise MeshError(
                     'index %d refers to a vertex beyond the %d present'
                     % (int(self.indices.max()), count)
+                )
+            if not len(self.indices) and count and self.mode == _MODE_TRIANGLES:
+                raise MeshError(
+                    '%d vertices and an empty index buffer: this primitive draws nothing' % count
                 )
 
     def _position_topology(self, tolerance: float = 0.0) -> np.ndarray:
@@ -260,8 +267,24 @@ class Primitive:
         inverse transpose of its rotation part, which is what keeps them
         perpendicular to the surface under a non-uniform scale, and are
         re-normalised afterwards.
+
+        A matrix with a negative determinant turns the surface inside out. The
+        winding is flipped to match, and the tangents' handedness column with
+        it, so the three ways the surface says which side it is -- normal,
+        winding and bitangent -- keep agreeing. Without that a back-face cull
+        removes the side the lighting pass shaded.
+
+        :raises MeshError: for a matrix with no inverse, which collapses the
+            geometry into a plane and leaves the normals undefined.
         """
         m = np.asarray(matrix, dtype=np.float64).reshape(4, 4)
+        determinant = float(np.linalg.det(m[:3, :3]))
+        if determinant == 0.0:
+            raise MeshError(
+                'the matrix has a zero determinant, so it has no inverse and the '
+                'normals it would produce are undefined: %r' % (m.tolist(),)
+            )
+        mirrored = determinant < 0.0
         attributes = dict(self.attributes)
         points = np.column_stack([self.positions.astype(np.float64), np.ones(self.vertex_count)])
         attributes['POSITION'] = _as_float32((points @ m.T)[:, :3])
@@ -274,23 +297,35 @@ class Primitive:
             lengths = np.linalg.norm(vectors, axis=1, keepdims=True)
             vectors = np.divide(vectors, lengths, out=np.zeros_like(vectors), where=lengths > 0)
             if name == 'TANGENT':
-                attributes[name] = _as_float32(np.column_stack([vectors, value[:, 3]]))
+                handedness = -value[:, 3] if mirrored else value[:, 3]
+                attributes[name] = _as_float32(np.column_stack([vectors, handedness]))
             else:
                 attributes[name] = _as_float32(vectors)
+        indices = None if self.indices is None else self.indices.copy()
+        if mirrored:
+            indices = np.ascontiguousarray(self.triangles[:, [0, 2, 1]].ravel().astype(np.uint32))
         return Primitive(
             attributes,
-            None if self.indices is None else self.indices.copy(),
+            indices,
             self.mode,
             self.material,
             dict(self.extras),
         )
 
     def reversed(self) -> Primitive:
-        """A copy facing the other way: winding flipped, normals negated."""
+        """A copy facing the other way: winding flipped, tangent frame turned over.
+
+        The normals are negated and the tangents' handedness column with them.
+        glTF reconstructs the bitangent as ``cross(N, T) * w``, so negating
+        ``N`` alone would flip the bitangent on its own and light a
+        normal-mapped surface inside out along V.
+        """
         attributes = dict(self.attributes)
-        for name in ('NORMAL',):
-            if name in attributes:
-                attributes[name] = _as_float32(-attributes[name])
+        if 'NORMAL' in attributes:
+            attributes['NORMAL'] = _as_float32(-attributes['NORMAL'])
+        tangent = attributes.get('TANGENT')
+        if tangent is not None:
+            attributes['TANGENT'] = _as_float32(np.column_stack([tangent[:, :3], -tangent[:, 3]]))
         # Swap the last two corners rather than reversing all three: the winding
         # flips either way, but this keeps each triangle's first vertex, which is
         # the one a flat-shading renderer takes its attributes from.
@@ -312,10 +347,17 @@ class Mesh:
     A generator returns one of these. Callers customise by editing the arrays in
     place, appending primitives, adding meshes together, or assigning materials,
     then either hand it to a renderer or serialise it.
+
+    ``materials`` holds glTF material dictionaries, which
+    :attr:`Primitive.material` indexes. A generator leaves it empty, since
+    nothing here knows what a surface should be made of; a caller that assigns
+    materials fills it in. :meth:`to_gltf` writes whatever is here, and supplies
+    plain default materials for indices a caller named without defining.
     """
 
     primitives: list[Primitive] = field(default_factory=list)
     name: str | None = None
+    materials: list[dict[str, Any]] = field(default_factory=list)
 
     def __len__(self) -> int:
         return len(self.primitives)
@@ -407,8 +449,20 @@ class Mesh:
         With ``embed`` the buffer is a base64 data URI, so the document is
         self-contained and ``json.dumps`` writes a complete ``.gltf`` file.
         Without it the buffer is described but its bytes are left for the caller
-        to place, which is what :meth:`to_glb` does.
+        to place -- :meth:`to_glb_bytes` is what does that, and what wants the
+        bytes back; a caller who only wants a document should leave ``embed``
+        alone.
+
+        Either way what comes back is glTF and nothing else: every key in it is
+        one the specification defines.
+
+        :raises MeshError: when a primitive names a material index this mesh
+            does not define and cannot be given a default -- a negative one.
         """
+        return self._to_gltf_and_blob(embed)[0]
+
+    def _to_gltf_and_blob(self, embed: bool) -> tuple[dict[str, Any], bytes]:
+        """The document and its buffer, which is what the two writers need."""
         blob = bytearray()
         views: list[dict[str, Any]] = []
         accessors: list[dict[str, Any]] = []
@@ -458,6 +512,9 @@ class Mesh:
             'bufferViews': views,
             'buffers': [],
         }
+        materials = self._materials_array()
+        if materials:
+            document['materials'] = materials
         if blob:
             buffer: dict[str, Any] = {'byteLength': len(blob)}
             if embed:
@@ -465,10 +522,38 @@ class Mesh:
                     bytes(blob)
                 ).decode('ascii')
             document['buffers'].append(buffer)
-        document['_blob'] = bytes(blob) if not embed else b''
-        if embed:
-            del document['_blob']
-        return document
+        return document, bytes(blob)
+
+    def _materials_array(self) -> list[dict[str, Any]]:
+        """The ``materials`` array every ``material`` index needs to point into.
+
+        glTF requires a primitive's ``material`` to index this array, so a mesh
+        that names one without defining it is not a document any reader will
+        accept. What to do about that depends on which of the two things the
+        caller was doing:
+
+        With :attr:`materials` empty, ``material`` is being used as a grouping
+        key -- which is what :meth:`merged` reads it as, and all a generator here
+        ever sets. The indices are filled in with the default PBR material, the
+        same one a reader uses for a primitive that names no material, so the
+        document is valid and says nothing untrue about the surface.
+
+        With :attr:`materials` supplied, the caller has said what their materials
+        are, and an index outside that list is a mistake rather than a gap to
+        paper over.
+        """
+        named = [p.material for p in self.primitives if p.material is not None]
+        for index in named:
+            if index < 0 or (self.materials and index >= len(self.materials)):
+                raise MeshError(
+                    'a primitive names material %d, but this mesh defines %d'
+                    % (index, len(self.materials))
+                )
+        if self.materials:
+            return [_jsonable(entry) for entry in self.materials]
+        if not named:
+            return []
+        return [{'pbrMetallicRoughness': {}} for _ in range(max(named) + 1)]
 
     def to_glb_bytes(self) -> bytes:
         """The mesh as a binary glTF container, in memory.
@@ -476,8 +561,7 @@ class Mesh:
         Useful for handing a complete asset to something that reads glTF without
         going near the filesystem.
         """
-        document = self.to_gltf(embed=False)
-        blob = document.pop('_blob', b'')
+        document, blob = self._to_gltf_and_blob(embed=False)
         json_chunk = json.dumps(document, separators=(',', ':')).encode('utf-8')
         json_chunk += b' ' * (-len(json_chunk) % 4)
         binary_chunk = blob + b'\x00' * (-len(blob) % 4)

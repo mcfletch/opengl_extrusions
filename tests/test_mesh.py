@@ -29,6 +29,13 @@ def tetrahedron():
     return Primitive(attributes={'POSITION': positions}, indices=indices)
 
 
+def tangent_quad():
+    """The unit square with a full tangent frame: +z normal, +x tangent."""
+    p = quad()
+    p.attributes['TANGENT'] = np.array([(1, 0, 0, 1)] * 4, 'f')
+    return p
+
+
 class TestPrimitive:
     def test_attributes_are_float32_and_contiguous(self):
         p = Primitive(attributes={'POSITION': [[0, 0, 0], [1, 0, 0], [0, 1, 0]]})
@@ -137,6 +144,71 @@ class TestPrimitive:
         flipped = p.reversed()
         assert list(flipped.triangles[0]) == [0, 2, 1]
         assert np.allclose(flipped.normals[0], (0, 0, -1))
+
+
+class TestTangentFramesSurviveTheirTransforms:
+    """glTF reconstructs the bitangent as ``cross(N, T) * w``.
+
+    So anything that flips the normal has to flip ``w`` with it, or the
+    bitangent turns over on its own and a normal-mapped surface lights inside
+    out along V.
+    """
+
+    @staticmethod
+    def _bitangent(p, index=0):
+        tangent = p.tangents[index]
+        return np.cross(p.normals[index], tangent[:3]) * tangent[3]
+
+    def test_reversing_keeps_the_frame_right_handed(self):
+        p = tangent_quad()
+        before = self._bitangent(p)
+        flipped = p.reversed()
+        assert np.allclose(flipped.normals[0], (0, 0, -1))
+        # The surface faces the other way, so the tangent frame turns over with
+        # it: the bitangent is the one direction that must not move on its own.
+        assert np.allclose(self._bitangent(flipped), before)
+
+    def test_reversing_negates_the_handedness_column(self):
+        assert tangent_quad().reversed().tangents[0][3] == pytest.approx(-1.0)
+
+    def test_reversing_twice_is_the_identity(self):
+        p = tangent_quad()
+        twice = p.reversed().reversed()
+        assert np.allclose(twice.tangents, p.tangents)
+        assert np.allclose(twice.normals, p.normals)
+        assert np.array_equal(twice.triangles, p.triangles)
+
+
+class TestMirroring:
+    @staticmethod
+    def mirror():
+        return np.diag([-1.0, 1.0, 1.0, 1.0])
+
+    def test_a_mirror_flips_the_winding(self):
+        """Otherwise the normals and the winding disagree, which is worse than
+        either alone: culling removes the lit side."""
+        p = quad()
+        mirrored = p.transformed(self.mirror())
+        assert list(mirrored.triangles[0]) == [0, 2, 1]
+
+    def test_a_mirror_leaves_the_surface_facing_the_way_it_did(self):
+        solid = tetrahedron()
+        assert solid.signed_volume() > 0
+        assert solid.transformed(self.mirror()).signed_volume() > 0
+
+    def test_an_ordinary_transform_leaves_the_winding_alone(self):
+        p = quad()
+        turned = p.transformed(np.diag([2.0, 3.0, 1.0, 1.0]))
+        assert list(turned.triangles[0]) == [0, 1, 2]
+
+    def test_a_mirror_flips_the_tangent_handedness(self):
+        p = tangent_quad()
+        assert p.transformed(self.mirror()).tangents[0][3] == pytest.approx(-1.0)
+
+    def test_a_singular_matrix_is_refused_by_name(self):
+        with pytest.raises(MeshError) as caught:
+            quad().transformed(np.diag([1.0, 0.0, 1.0, 1.0]))
+        assert 'determinant' in str(caught.value)
 
 
 class TestMesh:
@@ -249,6 +321,55 @@ class TestGLTF:
         doc = Mesh([]).to_gltf()
         assert doc['asset']['version'] == '2.0'
         assert doc['meshes'] == []
+
+    def test_the_document_carries_nothing_that_is_not_gltf(self):
+        """``to_gltf`` promises a glTF document; a private key in it makes the
+        obvious thing to do with the result write an invalid file."""
+        for embed in (True, False):
+            doc = Mesh([quad()]).to_gltf(embed=embed)
+            assert not [key for key in doc if key.startswith('_')]
+
+
+class TestGLTFMaterials:
+    """``material`` indexes the document's ``materials`` array.
+
+    A primitive that names one the document does not define is rejected by a
+    validator and indexes out of range in a loader, so the two have to be
+    written together.
+    """
+
+    def test_a_material_index_gets_a_materials_array_to_index(self):
+        m = Mesh([quad()])
+        m.primitives[0].material = 0
+        doc = m.to_gltf()
+        assert len(doc['materials']) == 1
+        assert doc['meshes'][0]['primitives'][0]['material'] == 0
+
+    def test_the_materials_array_is_long_enough_for_the_highest_index(self):
+        m = Mesh([quad(), quad()])
+        m.primitives[0].material = 0
+        m.primitives[1].material = 3
+        assert len(m.to_gltf()['materials']) == 4
+
+    def test_a_mesh_naming_no_material_writes_no_materials_array(self):
+        assert 'materials' not in Mesh([quad()]).to_gltf()
+
+    def test_supplied_materials_are_written_out(self):
+        m = Mesh([quad()], materials=[{'name': 'brass', 'pbrMetallicRoughness': {}}])
+        m.primitives[0].material = 0
+        doc = m.to_gltf()
+        assert doc['materials'][0]['name'] == 'brass'
+
+    def test_naming_a_material_that_does_not_exist_is_refused(self):
+        m = Mesh([quad()], materials=[{'name': 'brass'}])
+        m.primitives[0].material = 2
+        with pytest.raises(MeshError):
+            m.to_gltf()
+
+    def test_the_document_with_materials_is_json_serialisable(self):
+        m = Mesh([quad()])
+        m.primitives[0].material = 0
+        json.dumps(m.to_gltf())
 
 
 class TestWelding:

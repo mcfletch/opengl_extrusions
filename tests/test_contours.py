@@ -59,6 +59,27 @@ class TestContourBuilders:
         shape = rounded_rectangle(2, 2, radius=10.0, segments=16)
         assert polygon_area(shape) == pytest.approx(np.pi, rel=1e-2)
 
+    @pytest.mark.parametrize('width,height', [(-1, -1), (-1, 1), (1, -1), (0, 1), (1, 0)])
+    def test_a_rounded_rectangle_refuses_what_a_rectangle_refuses(self, width, height):
+        """The two builders make the same shape and must agree about the input.
+
+        A negative width used to clamp the corner radius negative, which draws
+        the arcs backwards and yields a ring that crosses itself.
+        """
+        with pytest.raises(ValueError):
+            rectangle(width, height)
+        with pytest.raises(ValueError):
+            rounded_rectangle(width, height, radius=0.1)
+
+    @pytest.mark.parametrize('unit', [1e-15, 1e-9, 1.0, 1e9, 1e15])
+    def test_a_rounded_rectangle_is_the_same_shape_at_every_scale(self, unit):
+        """The duplicate-point test is relative to the shape, so a part authored
+        in a small unit does not have its edges deleted one by one."""
+        big = rounded_rectangle(4.0, 2.0, radius=0.5, segments=8)
+        small = rounded_rectangle(4.0 * unit, 2.0 * unit, radius=0.5 * unit, segments=8)
+        assert len(small) == len(big)
+        assert np.allclose(small / unit, big, rtol=1e-9)
+
     def test_a_star_alternates_radii(self):
         s = star(points=5, outer=1.0, inner=0.4)
         assert len(s) == 10

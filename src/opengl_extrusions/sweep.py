@@ -347,10 +347,10 @@ def _per_point(value, steps: int, what: str, width: int, default: Sequence[float
         return np.tile(np.asarray(default, dtype=np.float64)[:width], (steps, 1))
     array = np.asarray(value, dtype=np.float64)
     if array.ndim == 0:
+        # One value everywhere. It still falls through to the shared checks at
+        # the bottom, so a NaN is refused here rather than surfacing later as a
+        # mesh whose positions are not numbers.
         array = np.full((steps, width), float(array))
-        if width == 2:
-            return array
-        return array
     if array.ndim == 1:
         if len(array) == steps:
             array = array[:, None]
@@ -815,8 +815,17 @@ def _without_degenerates(positions: np.ndarray, indices: np.ndarray) -> np.ndarr
         return np.asarray(indices, dtype=np.uint32)
     a, b, c = (positions[tris[:, i]].astype(np.float64) for i in range(3))
     areas = np.linalg.norm(np.cross(b - a, c - a), axis=1)
-    # Relative to the largest triangle, so the test means the same at any scale.
-    keep = areas > max(float(areas.max()), 1.0) * 1e-12
+    largest = float(areas.max())
+    if largest == 0.0:
+        # Nothing here has area at all -- a contour of zero radius, say. Every
+        # triangle goes, which is the same answer the relative test below gives
+        # and the only one it cannot express.
+        return np.zeros(0, dtype=np.uint32)
+    # Relative to the largest triangle, so the test means the same at any scale:
+    # a part authored in millimetres has to survive it as a part authored in
+    # metres does, and an absolute floor here would quietly empty the smaller of
+    # the two.
+    keep = areas > largest * 1e-12
     return np.ascontiguousarray(tris[keep].ravel().astype(np.uint32))
 
 
