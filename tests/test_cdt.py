@@ -5,6 +5,7 @@ These exercise the machinery directly. The user-facing behaviour is in
 consistent neighbours, no overlaps, no lost area -- under inputs chosen to be
 awkward.
 """
+
 import numpy as np
 import pytest
 
@@ -22,8 +23,9 @@ def triangle_areas(points, triangles):
     a = points[triangles[:, 0]]
     b = points[triangles[:, 1]]
     c = points[triangles[:, 2]]
-    return 0.5 * ((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
-                  - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0]))
+    return 0.5 * (
+        (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+    )
 
 
 class TestDelaunay:
@@ -41,18 +43,23 @@ class TestDelaunay:
         t = Triangulation(pts)
         assert t.is_delaunay()
 
-    def test_the_triangles_tile_the_convex_hull(self, ):
+    def test_the_triangles_tile_the_convex_hull(
+        self,
+    ):
         pts = random_points(40, seed=3)
         t = Triangulation(pts)
         from opengl_extrusions.cdt import convex_hull
+
         hull = convex_hull(pts)
         assert triangle_areas(pts, t.triangles).sum() == pytest.approx(
-            abs(polygon_area(pts[hull])), rel=1e-12)
+            abs(polygon_area(pts[hull])), rel=1e-12
+        )
 
     def test_triangle_count_follows_eulers_formula(self):
         pts = random_points(30, seed=11)
         t = Triangulation(pts)
         from opengl_extrusions.cdt import convex_hull
+
         hull = len(convex_hull(pts))
         assert len(t.triangles) == 2 * len(pts) - 2 - hull
 
@@ -113,16 +120,14 @@ class TestDelaunay:
 
 class TestConstraints:
     def test_a_constraint_appears_as_an_edge(self):
-        pts = np.array([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0),
-                        (2.0, 1.9), (2.0, 2.1)])
+        pts = np.array([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (2.0, 1.9), (2.0, 2.1)])
         t = Triangulation(pts)
         t.insert_constraint(0, 2)
         assert t.has_edge(0, 2)
         t.check_consistency()
 
     def test_a_constraint_survives_delaunay_restoration(self):
-        pts = np.array([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0),
-                        (2.0, 1.9), (2.0, 2.1)])
+        pts = np.array([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (2.0, 1.9), (2.0, 2.1)])
         t = Triangulation(pts)
         t.insert_constraint(0, 2)
         t.restore_delaunay()
@@ -145,8 +150,9 @@ class TestConstraints:
         assert t.has_edge(0, 1)
 
     def test_many_crossing_constraints_all_survive(self):
-        ring = np.array([(np.cos(a), np.sin(a)) for a in np.linspace(0, 2 * np.pi, 12,
-                                                                    endpoint=False)])
+        ring = np.array(
+            [(np.cos(a), np.sin(a)) for a in np.linspace(0, 2 * np.pi, 12, endpoint=False)]
+        )
         t = Triangulation(ring)
         pairs = [(i, (i + 5) % 12) for i in range(12)]
         # Diagonals of a 12-gon cross each other, so they cannot all be inserted;
@@ -180,16 +186,17 @@ class TestRegionClassification:
         assert triangle_areas(t.points, t.triangles[kept]).sum() == pytest.approx(1.0)
 
     def test_a_hole_is_dropped(self):
-        g = build_pslg([[(0, 0), (4, 0), (4, 4), (0, 4)],
-                        [(1, 1), (1, 3), (3, 3), (3, 1)]])
+        g = build_pslg([[(0, 0), (4, 0), (4, 4), (0, 4)], [(1, 1), (1, 3), (3, 3), (3, 1)]])
         t = Triangulation.from_pslg(g)
         kept = t.classify(g, 'odd')
         assert triangle_areas(t.points, t.triangles[kept]).sum() == pytest.approx(12.0)
 
     def test_nested_rings_alternate_under_the_odd_rule(self):
-        rings = [[(0, 0), (6, 0), (6, 6), (0, 6)],
-                 [(1, 1), (5, 1), (5, 5), (1, 5)],
-                 [(2, 2), (4, 2), (4, 4), (2, 4)]]
+        rings = [
+            [(0, 0), (6, 0), (6, 6), (0, 6)],
+            [(1, 1), (5, 1), (5, 5), (1, 5)],
+            [(2, 2), (4, 2), (4, 4), (2, 4)],
+        ]
         g = build_pslg(rings)
         t = Triangulation.from_pslg(g)
         kept = t.classify(g, 'odd')
@@ -197,9 +204,11 @@ class TestRegionClassification:
         assert area == pytest.approx(36 - 16 + 4)
 
     def test_nested_rings_all_count_under_the_nonzero_rule(self):
-        rings = [[(0, 0), (6, 0), (6, 6), (0, 6)],
-                 [(1, 1), (5, 1), (5, 5), (1, 5)],
-                 [(2, 2), (4, 2), (4, 4), (2, 4)]]
+        rings = [
+            [(0, 0), (6, 0), (6, 6), (0, 6)],
+            [(1, 1), (5, 1), (5, 5), (1, 5)],
+            [(2, 2), (4, 2), (4, 4), (2, 4)],
+        ]
         g = build_pslg(rings)
         t = Triangulation.from_pslg(g)
         kept = t.classify(g, 'nonzero')
@@ -235,8 +244,7 @@ class TestRefinement:
         assert triangle_areas(t.points, t.triangles[kept]).sum() == pytest.approx(4.0)
 
     def test_refinement_keeps_the_constrained_boundary(self):
-        g = build_pslg([[(0, 0), (4, 0), (4, 4), (0, 4)],
-                        [(1, 1), (1, 3), (3, 3), (3, 1)]])
+        g = build_pslg([[(0, 0), (4, 0), (4, 4), (0, 4)], [(1, 1), (1, 3), (3, 3), (3, 1)]])
         t = Triangulation.from_pslg(g)
         kept = t.classify(g, 'odd')
         kept = t.refine(g, kept, max_area=0.2)
@@ -251,7 +259,8 @@ class TestRefinement:
         kept = t.refine(g, kept, min_angle=30.0, max_points=400)
         assert len(kept) > 0
         assert triangle_areas(t.points, t.triangles[kept]).sum() == pytest.approx(
-            abs(polygon_area(wedge)))
+            abs(polygon_area(wedge))
+        )
 
     def test_refining_without_a_target_changes_nothing(self):
         g = build_pslg([[(0, 0), (1, 0), (1, 1), (0, 1)]])

@@ -4,12 +4,16 @@ The generated modes' formulae were established by measuring what the GLE tubing
 library emits (see ``specs/SPEC-GLE-GEOMETRY.md``); the values below are those
 measurements, so a change to the formulae has to disagree with GLE to fail here.
 """
+
 import numpy as np
 import pytest
 
 from opengl_extrusions import circle, extrude
 from opengl_extrusions.texcoords import (
-    GENERATED_MODES, PARAMETER_MODES, TEXTURE_MODES, generated_uv,
+    GENERATED_MODES,
+    PARAMETER_MODES,
+    TEXTURE_MODES,
+    generated_uv,
 )
 
 #: The contour and normals the GLE measurements were taken with.
@@ -20,8 +24,11 @@ SEGMENT = [(0, 0, 1), (0, 0, -1)]
 
 def swept(mode, **named):
     named.setdefault('contour_normals', NORMALS)
-    return extrude(CONTOUR, SEGMENT, texture=mode, caps=False, up=(0, 1, 0),
-                   **named).primitives[0].texcoords
+    return (
+        extrude(CONTOUR, SEGMENT, texture=mode, caps=False, up=(0, 1, 0), **named)
+        .primitives[0]
+        .texcoords
+    )
 
 
 class TestTheFormulae:
@@ -48,8 +55,7 @@ class TestTheFormulae:
 
     def test_the_model_variants_ignore_scale_and_twist(self):
         placed = CONTOUR * 3.0
-        plain = generated_uv('vertex_model_flat', placed, NORMALS, CONTOUR,
-                             NORMALS, 0.0)
+        plain = generated_uv('vertex_model_flat', placed, NORMALS, CONTOUR, NORMALS, 0.0)
         scaled = generated_uv('vertex_flat', placed, NORMALS, CONTOUR, NORMALS, 0.0)
         assert np.allclose(plain[:, 0], CONTOUR[:, 0])
         assert np.allclose(scaled[:, 0], CONTOUR[:, 0] * 3.0)
@@ -92,8 +98,12 @@ class TestThroughASweep:
         assert swept('arc_length')[:, 1].max() == pytest.approx(2.0)
 
     def test_no_texture_coordinates_when_none_is_asked_for(self):
-        assert extrude(CONTOUR, SEGMENT, texture=None,
-                       caps=False, up=(0, 1, 0)).primitives[0].texcoords is None
+        assert (
+            extrude(CONTOUR, SEGMENT, texture=None, caps=False, up=(0, 1, 0))
+            .primitives[0]
+            .texcoords
+            is None
+        )
 
     def test_an_unknown_mode_is_refused(self):
         with pytest.raises(ValueError):
@@ -112,8 +122,11 @@ class TestThroughASweep:
         relative to GLE's. What matters is that one turn round the contour
         covers one unit of u, which it does.
         """
-        uv = extrude(circle(1.0, 8), SEGMENT, texture='vertex_cyl', caps=False,
-                     up=(0, 1, 0)).primitives[0].texcoords
+        uv = (
+            extrude(circle(1.0, 8), SEGMENT, texture='vertex_cyl', caps=False, up=(0, 1, 0))
+            .primitives[0]
+            .texcoords
+        )
         span = float(uv[:, 0].max() - uv[:, 0].min())
         assert 0.8 < span < 1.0, 'one turn of the contour is one unit of u'
 
@@ -125,8 +138,11 @@ class TestThroughASweep:
         the quads either side, so u steps back across the seam instead. See
         docs/GLE-PARITY.md.
         """
-        uv = extrude(circle(1.0, 8), SEGMENT, texture='vertex_cyl', caps=False,
-                     up=(0, 1, 0)).primitives[0].texcoords
+        uv = (
+            extrude(circle(1.0, 8), SEGMENT, texture='vertex_cyl', caps=False, up=(0, 1, 0))
+            .primitives[0]
+            .texcoords
+        )
         # exactly as many distinct u values as there are contour points: no
         # vertex was duplicated to carry a second coordinate.
         assert len(np.unique(np.round(uv[:, 0], 6))) == 8

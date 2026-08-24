@@ -43,25 +43,38 @@ closed by caps if asked for.
     still folds through itself: no amount of rounding can put material where two
     segments already overlap.
 """
+
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
-
-from opengl_extrusions.types import Vector
 
 from opengl_extrusions.contours import contour_normals
 from opengl_extrusions.frames import PathFrames, clean_path, path_frames
 from opengl_extrusions.mesh import Mesh, Primitive
 from opengl_extrusions.tessellate import tessellate
 from opengl_extrusions.texcoords import (
-    GENERATED_MODES, TEXTURE_MODES as _TEXTURE_MODES, generated_uv,
+    GENERATED_MODES,
+    generated_uv,
 )
+from opengl_extrusions.texcoords import (
+    TEXTURE_MODES as _TEXTURE_MODES,
+)
+from opengl_extrusions.types import Vector
 
-__all__ = ['sweep', 'SweepError', 'JOIN_STYLES', 'NORMAL_MODES', 'PATH_ENDS',
-           'TEXTURE_MODES', 'Station', 'build_from_stations']
+__all__ = [
+    'sweep',
+    'SweepError',
+    'JOIN_STYLES',
+    'NORMAL_MODES',
+    'PATH_ENDS',
+    'TEXTURE_MODES',
+    'Station',
+    'build_from_stations',
+]
 
 #: How a corner between two path segments is closed. See the module docstring.
 JOIN_STYLES = ('raw', 'angle', 'cut', 'round')
@@ -114,57 +127,69 @@ class Station:
     #: Whether a strip should be built from this station to the next one.
     connect: bool = True
     #: Vertex colour for this ring, ``(4,)`` RGBA, when the caller asked for one.
-    color: Optional[np.ndarray] = None
+    color: np.ndarray | None = None
     #: Normals for the strip *leaving* this station, where they differ from the
     #: ones for the strip arriving at it. A mitred corner is exactly that case:
     #: the surface arrives along one segment and leaves along another, and the
     #: two face different ways, so one set of normals cannot serve both.
-    normals_out: Optional[np.ndarray] = None
+    normals_out: np.ndarray | None = None
     #: Whether the strip leaving this station is a flat facet, to be shaded from
     #: its own geometry rather than from the contour. The band that fills a
     #: bevelled corner is one.
     facet_next: bool = False
     #: The contour and its normals in this station's own 2D frame, after the
     #: per-point scale and twist. The generated texture modes read these.
-    placed_xy: Optional[np.ndarray] = None
-    placed_normal_xy: Optional[np.ndarray] = None
+    placed_xy: np.ndarray | None = None
+    placed_normal_xy: np.ndarray | None = None
 
     def leaving(self) -> np.ndarray:
         """The normals for the strip that starts here."""
         return self.normals if self.normals_out is None else self.normals_out
 
 
-def sweep(contour, path, *,
-          contour_normals_2d=None,
-          up: Vector = (0.0, 1.0, 0.0),
-          frames: str = 'up',
-          join: str = 'angle',
-          miter_limit: float = 4.0,
-          round_segments: int = 4,
-          caps: Any = True,
-          closed_contour: bool = True,
-          closed_path: bool = False,
-          normals: str = 'edge',
-          texture: Optional[str] = 'normalized',
-          scale=None, twist=None, color=None, path_ends: str = 'draw',
-          cap_min_angle: Optional[float] = None,
-          cap_max_area: Optional[float] = None,
-          name: Optional[str] = None,
-          extras: Optional[Dict[str, Any]] = None) -> Mesh:
+def sweep(
+    contour,
+    path,
+    *,
+    contour_normals_2d=None,
+    up: Vector = (0.0, 1.0, 0.0),
+    frames: str = 'up',
+    join: str = 'angle',
+    miter_limit: float = 4.0,
+    round_segments: int = 4,
+    caps: Any = True,
+    closed_contour: bool = True,
+    closed_path: bool = False,
+    normals: str = 'edge',
+    texture: str | None = 'normalized',
+    scale=None,
+    twist=None,
+    color=None,
+    path_ends: str = 'draw',
+    cap_min_angle: float | None = None,
+    cap_max_area: float | None = None,
+    name: str | None = None,
+    extras: dict[str, Any] | None = None,
+) -> Mesh:
     """Sweep one or more contours along a path. See :func:`~opengl_extrusions.shapes.extrude`
     for the documented public entry point, which calls this."""
     if join not in JOIN_STYLES:
-        raise ValueError('unknown join style %r; expected one of %s'
-                         % (join, ', '.join(JOIN_STYLES)))
+        raise ValueError(
+            'unknown join style %r; expected one of %s' % (join, ', '.join(JOIN_STYLES))
+        )
     if normals not in NORMAL_MODES:
-        raise ValueError('unknown normal mode %r; expected one of %s'
-                         % (normals, ', '.join(NORMAL_MODES)))
+        raise ValueError(
+            'unknown normal mode %r; expected one of %s' % (normals, ', '.join(NORMAL_MODES))
+        )
     if texture is not None and texture not in TEXTURE_MODES:
-        raise ValueError('unknown texture mode %r; expected one of %s, or None'
-                         % (texture, ', '.join(TEXTURE_MODES)))
+        raise ValueError(
+            'unknown texture mode %r; expected one of %s, or None'
+            % (texture, ', '.join(TEXTURE_MODES))
+        )
     if path_ends not in PATH_ENDS:
-        raise ValueError('unknown path_ends %r; expected one of %s'
-                         % (path_ends, ', '.join(PATH_ENDS)))
+        raise ValueError(
+            'unknown path_ends %r; expected one of %s' % (path_ends, ', '.join(PATH_ENDS))
+        )
 
     rings = _as_contours(contour)
     points = clean_path(path, closed=closed_path)
@@ -176,24 +201,57 @@ def sweep(contour, path, *,
     steps = len(geometry)
     scale_values = _per_point(scale, steps, 'scale', width=2, default=(1.0, 1.0))
     twist_values = _per_point(twist, steps, 'twist', width=1, default=(0.0,))[:, 0]
-    color_values = None if color is None else _per_point(
-        color, steps, 'color', width=4, default=(1.0, 1.0, 1.0, 1.0))
+    color_values = (
+        None
+        if color is None
+        else _per_point(color, steps, 'color', width=4, default=(1.0, 1.0, 1.0, 1.0))
+    )
 
-    primitives: List[Primitive] = []
+    primitives: list[Primitive] = []
     for index, (ring, ring_normals) in enumerate(
-            _with_normals(rings, contour_normals_2d, closed_contour)):
-        stations = _stations(geometry, ring, ring_normals, join, miter_limit,
-                             round_segments, closed_path, scale_values, twist_values,
-                             color_values, path_ends)
-        primitives.append(build_from_stations(
-            stations, ring, closed_contour, closed_path, normals, texture,
-            geometry.total_length, index))
+        _with_normals(rings, contour_normals_2d, closed_contour)
+    ):
+        stations = _stations(
+            geometry,
+            ring,
+            ring_normals,
+            join,
+            miter_limit,
+            round_segments,
+            closed_path,
+            scale_values,
+            twist_values,
+            color_values,
+            path_ends,
+        )
+        primitives.append(
+            build_from_stations(
+                stations,
+                ring,
+                closed_contour,
+                closed_path,
+                normals,
+                texture,
+                geometry.total_length,
+                index,
+            )
+        )
 
     mesh = Mesh(primitives, name=name)
     if cap_begin or cap_end:
-        mesh = mesh + _caps(geometry, rings, contour_normals_2d, closed_contour,
-                            cap_begin, cap_end, texture, scale_values, twist_values,
-                            cap_min_angle, cap_max_area)
+        mesh = mesh + _caps(
+            geometry,
+            rings,
+            contour_normals_2d,
+            closed_contour,
+            cap_begin,
+            cap_end,
+            texture,
+            scale_values,
+            twist_values,
+            cap_min_angle,
+            cap_max_area,
+        )
     if len(mesh.primitives) > 1:
         mesh = mesh.merged()
     for p in mesh.primitives:
@@ -203,12 +261,12 @@ def sweep(contour, path, *,
 
 # -- input handling -------------------------------------------------------
 
-def _as_contours(contour) -> List[np.ndarray]:
+
+def _as_contours(contour) -> list[np.ndarray]:
     """One contour or several, uniformly, validated."""
     if isinstance(contour, np.ndarray) and contour.ndim == 2:
         candidates = [contour]
-    elif (isinstance(contour, (list, tuple)) and contour
-          and isinstance(contour[0], (int, float))):
+    elif isinstance(contour, (list, tuple)) and contour and isinstance(contour[0], (int, float)):
         raise ValueError('contour must be an (N, 2) array of points')
     else:
         candidates = list(contour) if not isinstance(contour, np.ndarray) else [contour]
@@ -242,20 +300,25 @@ def _with_normals(rings, supplied, closed_contour):
         for ring in rings:
             yield ring, contour_normals(ring, closed=closed_contour)
         return
-    supplied_list = ([np.asarray(supplied, dtype=np.float64)]
-                     if np.ndim(supplied[0]) == 1 else
-                     [np.asarray(s, dtype=np.float64) for s in supplied])
+    supplied_list = (
+        [np.asarray(supplied, dtype=np.float64)]
+        if np.ndim(supplied[0]) == 1
+        else [np.asarray(s, dtype=np.float64) for s in supplied]
+    )
     if len(supplied_list) != len(rings):
-        raise ValueError('got %d contours but %d sets of contour normals'
-                         % (len(rings), len(supplied_list)))
+        raise ValueError(
+            'got %d contours but %d sets of contour normals' % (len(rings), len(supplied_list))
+        )
     for ring, ring_normals in zip(rings, supplied_list, strict=True):
         if ring_normals.shape != ring.shape:
-            raise ValueError('contour normals must match the contour: %r vs %r'
-                             % (ring_normals.shape, ring.shape))
+            raise ValueError(
+                'contour normals must match the contour: %r vs %r'
+                % (ring_normals.shape, ring.shape)
+            )
         yield ring, ring_normals
 
 
-def _cap_flags(caps, closed_contour, closed_path) -> Tuple[bool, bool]:
+def _cap_flags(caps, closed_contour, closed_path) -> tuple[bool, bool]:
     if caps in (None, False):
         return False, False
     if caps is True:
@@ -267,18 +330,18 @@ def _cap_flags(caps, closed_contour, closed_path) -> Tuple[bool, bool]:
     elif caps == 'both':
         begin = end = True
     else:
-        raise ValueError("caps must be True, False, 'begin', 'end' or 'both', got %r"
-                         % (caps,))
+        raise ValueError("caps must be True, False, 'begin', 'end' or 'both', got %r" % (caps,))
     if not closed_contour:
-        raise SweepError('an open contour has no inside, so it cannot be capped; '
-                         'pass caps=False or close the contour')
+        raise SweepError(
+            'an open contour has no inside, so it cannot be capped; '
+            'pass caps=False or close the contour'
+        )
     if closed_path:
         raise SweepError('a closed path has no ends to cap; pass caps=False')
     return begin, end
 
 
-def _per_point(value, steps: int, what: str, width: int,
-               default: Sequence[float]) -> np.ndarray:
+def _per_point(value, steps: int, what: str, width: int, default: Sequence[float]) -> np.ndarray:
     """Broadcast a per-path-point parameter to ``(steps, width)``."""
     if value is None:
         return np.tile(np.asarray(default, dtype=np.float64)[:width], (steps, 1))
@@ -294,18 +357,20 @@ def _per_point(value, steps: int, what: str, width: int,
         elif len(array) == width:
             array = np.tile(array, (steps, 1))
         else:
-            raise ValueError('%s should have one value per path point (%d) or %d '
-                             'components, got %d' % (what, steps, width, len(array)))
+            raise ValueError(
+                '%s should have one value per path point (%d) or %d '
+                'components, got %d' % (what, steps, width, len(array))
+            )
     if array.ndim != 2 or len(array) != steps:
-        raise ValueError('%s should be (%d, %d), got %r' % (what, steps, width,
-                                                            array.shape))
+        raise ValueError('%s should be (%d, %d), got %r' % (what, steps, width, array.shape))
     if array.shape[1] == 1 and width > 1:
         array = np.tile(array, (1, width))
     if array.shape[1] == 3 and width == 4:
         array = np.column_stack([array, np.ones(len(array))])
     if array.shape[1] != width:
-        raise ValueError('%s should have %d components per point, got %d'
-                         % (what, width, array.shape[1]))
+        raise ValueError(
+            '%s should have %d components per point, got %d' % (what, width, array.shape[1])
+        )
     if not np.isfinite(array).all():
         raise ValueError('%s contains a non-finite value' % what)
     return array
@@ -313,9 +378,16 @@ def _per_point(value, steps: int, what: str, width: int,
 
 # -- stations -------------------------------------------------------------
 
-def _place(ring: np.ndarray, ring_normals: np.ndarray, origin: np.ndarray,
-           right: np.ndarray, up: np.ndarray, scale: np.ndarray,
-           twist: float):
+
+def _place(
+    ring: np.ndarray,
+    ring_normals: np.ndarray,
+    origin: np.ndarray,
+    right: np.ndarray,
+    up: np.ndarray,
+    scale: np.ndarray,
+    twist: float,
+):
     """Put a contour into a frame, scaled and turned.
 
     Returns the 3D points and normals, and the 2D coordinates and normals they
@@ -329,8 +401,9 @@ def _place(ring: np.ndarray, ring_normals: np.ndarray, origin: np.ndarray,
         # the other axis. A zero scale collapses that axis entirely and leaves
         # the normal to come from the axis that survives.
         divisor = scale[::-1]
-        normals_xy = np.divide(ring_normals, divisor, out=np.zeros_like(ring_normals),
-                               where=np.abs(divisor) > _TINY)
+        normals_xy = np.divide(
+            ring_normals, divisor, out=np.zeros_like(ring_normals), where=np.abs(divisor) > _TINY
+        )
         empty = ~(np.abs(normals_xy) > _TINY).any(axis=1)
         if empty.any():
             normals_xy[empty] = ring_normals[empty]
@@ -342,8 +415,9 @@ def _place(ring: np.ndarray, ring_normals: np.ndarray, origin: np.ndarray,
         xy = xy @ rotation.T
         normals_xy = normals_xy @ rotation.T
     lengths = np.linalg.norm(normals_xy, axis=1, keepdims=True)
-    normals_xy = np.divide(normals_xy, lengths, out=np.zeros_like(normals_xy),
-                           where=lengths > _TINY)
+    normals_xy = np.divide(
+        normals_xy, lengths, out=np.zeros_like(normals_xy), where=lengths > _TINY
+    )
     points = origin + xy[:, 0:1] * right + xy[:, 1:2] * up
     normals = normals_xy[:, 0:1] * right + normals_xy[:, 1:2] * up
     return points, normals, xy, normals_xy
@@ -355,22 +429,30 @@ def _segment_frame(geometry: PathFrames, index: int, forward: np.ndarray):
     projected = reference_up - forward * float(np.dot(reference_up, forward))
     length = float(np.linalg.norm(projected))
     if length <= 1e-9:
-        projected = geometry.right[index] - forward * float(
-            np.dot(geometry.right[index], forward))
+        projected = geometry.right[index] - forward * float(np.dot(geometry.right[index], forward))
         length = float(np.linalg.norm(projected))
-        if length <= 1e-9:                      # pragma: no cover - frames are orthonormal
+        if length <= 1e-9:  # pragma: no cover - frames are orthonormal
             return geometry.right[index], geometry.up[index]
     frame_up = projected / length
     return np.cross(frame_up, forward), frame_up
 
 
-def _stations(geometry: PathFrames, ring: np.ndarray, ring_normals: np.ndarray,
-              join: str, miter_limit: float, round_segments: int, closed_path: bool,
-              scale_values: np.ndarray, twist_values: np.ndarray,
-              color_values: Optional[np.ndarray], path_ends: str) -> List[Station]:
+def _stations(
+    geometry: PathFrames,
+    ring: np.ndarray,
+    ring_normals: np.ndarray,
+    join: str,
+    miter_limit: float,
+    round_segments: int,
+    closed_path: bool,
+    scale_values: np.ndarray,
+    twist_values: np.ndarray,
+    color_values: np.ndarray | None,
+    path_ends: str,
+) -> list[Station]:
     """Place a ring at every point the join style calls for."""
     count = len(geometry)
-    stations: List[Station] = []
+    stations: list[Station] = []
     last = count if closed_path else count - 1
 
     for i in range(count):
@@ -385,35 +467,60 @@ def _stations(geometry: PathFrames, ring: np.ndarray, ring_normals: np.ndarray,
             leaving = None
             if interior and not straight and join == 'angle':
                 points, normals, leaving, flat, flat_n = _mitre(
-                    geometry, i, ring, ring_normals, scale, twist, miter_limit)
+                    geometry, i, ring, ring_normals, scale, twist, miter_limit
+                )
             else:
                 right, up = geometry.right[i], geometry.up[i]
                 points, normals, flat, flat_n = _place(
-                    ring, ring_normals, geometry.origin[i], right, up, scale, twist)
-            stations.append(Station(points, normals, arc,
-                                    connect=closed_path or i < last, color=colour,
-                                    normals_out=leaving, placed_xy=flat,
-                                    placed_normal_xy=flat_n))
+                    ring, ring_normals, geometry.origin[i], right, up, scale, twist
+                )
+            stations.append(
+                Station(
+                    points,
+                    normals,
+                    arc,
+                    connect=closed_path or i < last,
+                    color=colour,
+                    normals_out=leaving,
+                    placed_xy=flat,
+                    placed_normal_xy=flat_n,
+                )
+            )
             continue
 
         # raw, cut and round all end one segment square and begin the next
         # square, and differ only in what -- if anything -- fills the gap.
         end_right, end_up = _segment_frame(geometry, i, incoming)
         start_right, start_up = _segment_frame(geometry, i, outgoing)
-        ending = _place(ring, ring_normals, geometry.origin[i], end_right, end_up,
-                        scale, twist)
-        starting = _place(ring, ring_normals, geometry.origin[i], start_right,
-                          start_up, scale, twist)
-        stations.append(Station(ending[0], ending[1], arc, connect=join != 'raw',
-                                color=colour, facet_next=(join == 'cut'),
-                                placed_xy=ending[2], placed_normal_xy=ending[3]))
+        ending = _place(ring, ring_normals, geometry.origin[i], end_right, end_up, scale, twist)
+        starting = _place(
+            ring, ring_normals, geometry.origin[i], start_right, start_up, scale, twist
+        )
+        stations.append(
+            Station(
+                ending[0],
+                ending[1],
+                arc,
+                connect=join != 'raw',
+                color=colour,
+                facet_next=(join == 'cut'),
+                placed_xy=ending[2],
+                placed_normal_xy=ending[3],
+            )
+        )
         if join == 'round':
-            stations.extend(_round_corner(geometry, i, ending, arc, round_segments,
-                                          colour))
-        stations.append(Station(starting[0], starting[1], arc,
-                                connect=closed_path or i < last, color=colour,
-                                placed_xy=starting[2],
-                                placed_normal_xy=starting[3]))
+            stations.extend(_round_corner(geometry, i, ending, arc, round_segments, colour))
+        stations.append(
+            Station(
+                starting[0],
+                starting[1],
+                arc,
+                connect=closed_path or i < last,
+                color=colour,
+                placed_xy=starting[2],
+                placed_normal_xy=starting[3],
+            )
+        )
     if path_ends == 'construction' and not closed_path and len(stations) >= 4:
         # GLE's rule: the first and last segments only set the angle of the join
         # at the ends and are not themselves drawn.
@@ -426,13 +533,14 @@ def _bisector(incoming: np.ndarray, outgoing: np.ndarray) -> np.ndarray:
     """Unit normal of the plane that bisects the corner."""
     total = incoming + outgoing
     length = float(np.linalg.norm(total))
-    if length <= _TINY:                         # a reversal: the plane is square on
+    if length <= _TINY:  # a reversal: the plane is square on
         return incoming
     return total / length
 
 
-def _to_plane(points: np.ndarray, direction: np.ndarray, origin: np.ndarray,
-              plane_normal: np.ndarray) -> np.ndarray:
+def _to_plane(
+    points: np.ndarray, direction: np.ndarray, origin: np.ndarray, plane_normal: np.ndarray
+) -> np.ndarray:
     """Slide each point along ``direction`` until it reaches the plane.
 
     This is what makes a join continuous: every line of the tube's surface is
@@ -440,15 +548,21 @@ def _to_plane(points: np.ndarray, direction: np.ndarray, origin: np.ndarray,
     exactly rather than approximately.
     """
     denominator = float(np.dot(direction, plane_normal))
-    if abs(denominator) <= 1e-9:                # pragma: no cover - a square corner
+    if abs(denominator) <= 1e-9:  # pragma: no cover - a square corner
         return points
     offsets = ((origin - points) @ plane_normal) / denominator
     return points + offsets[:, None] * direction
 
 
-def _mitre(geometry: PathFrames, index: int, ring: np.ndarray,
-           ring_normals: np.ndarray, scale: np.ndarray, twist: float,
-           miter_limit: float):
+def _mitre(
+    geometry: PathFrames,
+    index: int,
+    ring: np.ndarray,
+    ring_normals: np.ndarray,
+    scale: np.ndarray,
+    twist: float,
+    miter_limit: float,
+):
     """One ring in the bisecting plane, reached along the incoming segment.
 
     Building it from the incoming segment rather than from the average frame is
@@ -469,27 +583,38 @@ def _mitre(geometry: PathFrames, index: int, ring: np.ndarray,
     plane_normal = _bisector(incoming, outgoing)
     right, up = _segment_frame(geometry, index, incoming)
     out_right, out_up = _segment_frame(geometry, index, outgoing)
-    points, normals, flat, flat_n = _place(ring, ring_normals,
-                                           geometry.origin[index], right, up,
-                                           scale, twist)
-    normals_out = _place(ring, ring_normals, geometry.origin[index], out_right,
-                         out_up, scale, twist)[1]
+    points, normals, flat, flat_n = _place(
+        ring, ring_normals, geometry.origin[index], right, up, scale, twist
+    )
+    normals_out = _place(
+        ring, ring_normals, geometry.origin[index], out_right, out_up, scale, twist
+    )[1]
     stretched = _to_plane(points, incoming, geometry.origin[index], plane_normal)
     reach = np.linalg.norm(stretched - geometry.origin[index], axis=1)
     square = np.linalg.norm(points - geometry.origin[index], axis=1)
-    largest = float(np.max(np.divide(reach, square, out=np.ones_like(reach),
-                                     where=square > _TINY)))
+    largest = float(np.max(np.divide(reach, square, out=np.ones_like(reach), where=square > _TINY)))
     if largest > miter_limit:
         bevelled, bevel_normals, bevel_flat, bevel_flat_n = _place(
-            ring, ring_normals, geometry.origin[index], geometry.right[index],
-            geometry.up[index], scale, twist)
+            ring,
+            ring_normals,
+            geometry.origin[index],
+            geometry.right[index],
+            geometry.up[index],
+            scale,
+            twist,
+        )
         return (bevelled, bevel_normals, bevel_normals, bevel_flat, bevel_flat_n)
     return stretched, normals, normals_out, flat, flat_n
 
 
-def _round_corner(geometry: PathFrames, index: int, ending, arc: float,
-                  round_segments: int,
-                  colour: Optional[np.ndarray] = None) -> List[Station]:
+def _round_corner(
+    geometry: PathFrames,
+    index: int,
+    ending,
+    arc: float,
+    round_segments: int,
+    colour: np.ndarray | None = None,
+) -> list[Station]:
     """Rings turning the corner, between the two square ends.
 
     Each is the incoming ring rotated about the corner's turning axis, so the
@@ -503,18 +628,27 @@ def _round_corner(geometry: PathFrames, index: int, ending, arc: float,
     incoming, outgoing = geometry.incoming[index], geometry.outgoing[index]
     axis = np.cross(incoming, outgoing)
     length = float(np.linalg.norm(axis))
-    if length <= 1e-9:                          # pragma: no cover - straight or reversed
+    if length <= 1e-9:  # pragma: no cover - straight or reversed
         return []
     axis = axis / length
     total = float(np.arccos(np.clip(np.dot(incoming, outgoing), -1.0, 1.0)))
     origin = geometry.origin[index]
-    out: List[Station] = []
+    out: list[Station] = []
     for step in range(1, steps):
         rotation = _rotation_about(axis, total * step / steps)
         points = (ending[0] - origin) @ rotation.T + origin
         normals = ending[1] @ rotation.T
-        out.append(Station(points, normals, arc, connect=True, color=colour,
-                           placed_xy=ending[2], placed_normal_xy=ending[3]))
+        out.append(
+            Station(
+                points,
+                normals,
+                arc,
+                connect=True,
+                color=colour,
+                placed_xy=ending[2],
+                placed_normal_xy=ending[3],
+            )
+        )
     return out
 
 
@@ -523,17 +657,23 @@ def _rotation_about(axis: np.ndarray, angle: float) -> np.ndarray:
     x, y, z = axis
     cosine, sine = np.cos(angle), np.sin(angle)
     cross = np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
-    return (np.eye(3) * cosine + sine * cross
-            + (1.0 - cosine) * np.outer(axis, axis))
+    return np.eye(3) * cosine + sine * cross + (1.0 - cosine) * np.outer(axis, axis)
 
 
 # -- turning stations into triangles --------------------------------------
 
-def build_from_stations(stations: List[Station], ring: np.ndarray,
-                        closed_contour: bool, closed_path: bool, normals: str,
-                        texture: Optional[str], total_length: float,
-                        contour_index: int = 0,
-                        reverse_winding: bool = False) -> Primitive:
+
+def build_from_stations(
+    stations: list[Station],
+    ring: np.ndarray,
+    closed_contour: bool,
+    closed_path: bool,
+    normals: str,
+    texture: str | None,
+    total_length: float,
+    contour_index: int = 0,
+    reverse_winding: bool = False,
+) -> Primitive:
     """Join the stations with quad strips, in the vertex layout the mode needs.
 
     ``reverse_winding`` swaps which way round each quad is built. A sweep whose
@@ -545,15 +685,16 @@ def build_from_stations(stations: List[Station], ring: np.ndarray,
     count = len(ring)
     edges = count if closed_contour else count - 1
     if not strips or edges < 1:
-        return Primitive({'POSITION': np.zeros((0, 3), dtype=np.float32)},
-                         np.zeros(0, dtype=np.uint32))
+        return Primitive(
+            {'POSITION': np.zeros((0, 3), dtype=np.float32)}, np.zeros(0, dtype=np.uint32)
+        )
 
     contour_u = _contour_parameter(ring, closed_contour, texture)
-    positions: List[np.ndarray] = []
-    surface_normals: List[np.ndarray] = []
-    texcoords: List[np.ndarray] = []
-    colors: List[np.ndarray] = []
-    indices: List[np.ndarray] = []
+    positions: list[np.ndarray] = []
+    surface_normals: list[np.ndarray] = []
+    texcoords: list[np.ndarray] = []
+    colors: list[np.ndarray] = []
+    indices: list[np.ndarray] = []
     base = 0
 
     for a, b in strips:
@@ -563,10 +704,15 @@ def build_from_stations(stations: List[Station], ring: np.ndarray,
         quad_second = (quad_first + 1) % count
         if reverse_winding:
             quad_first, quad_second = quad_second, quad_first
-        corners = np.stack([
-            first.points[quad_first], first.points[quad_second],
-            second.points[quad_second], second.points[quad_first],
-        ], axis=1)                                       # (edges, 4, 3)
+        corners = np.stack(
+            [
+                first.points[quad_first],
+                first.points[quad_second],
+                second.points[quad_second],
+                second.points[quad_first],
+            ],
+            axis=1,
+        )  # (edges, 4, 3)
 
         if strip_facet:
             face = _face_normals(corners)
@@ -576,12 +722,19 @@ def build_from_stations(stations: List[Station], ring: np.ndarray,
             if texture is not None:
                 first_uv = _station_uv(first, texture, contour_u, ring)
                 second_uv = _station_uv(second, texture, contour_u, ring)
-                block_uv = np.stack([first_uv[quad_first], first_uv[quad_second],
-                                     second_uv[quad_second], second_uv[quad_first]],
-                                    axis=1).reshape(-1, 2)
+                block_uv = np.stack(
+                    [
+                        first_uv[quad_first],
+                        first_uv[quad_second],
+                        second_uv[quad_second],
+                        second_uv[quad_first],
+                    ],
+                    axis=1,
+                ).reshape(-1, 2)
             quad = np.arange(edges) * 4
-            block_indices = np.stack([quad, quad + 1, quad + 2,
-                                      quad, quad + 2, quad + 3], axis=1).ravel()
+            block_indices = np.stack(
+                [quad, quad + 1, quad + 2, quad, quad + 2, quad + 3], axis=1
+            ).ravel()
             block_colors = None
             if first.color is not None and second.color is not None:
                 pair = np.stack([first.color, first.color, second.color, second.color])
@@ -591,18 +744,28 @@ def build_from_stations(stations: List[Station], ring: np.ndarray,
             block_normals = np.concatenate([first.leaving(), second.normals])
             block_uv = None
             if texture is not None:
-                block_uv = np.concatenate([
-                    _station_uv(first, texture, contour_u, ring),
-                    _station_uv(second, texture, contour_u, ring),
-                ])
-            block_indices = np.stack([
-                quad_first, quad_second, quad_second + count,
-                quad_first, quad_second + count, quad_first + count,
-            ], axis=1).ravel()
+                block_uv = np.concatenate(
+                    [
+                        _station_uv(first, texture, contour_u, ring),
+                        _station_uv(second, texture, contour_u, ring),
+                    ]
+                )
+            block_indices = np.stack(
+                [
+                    quad_first,
+                    quad_second,
+                    quad_second + count,
+                    quad_first,
+                    quad_second + count,
+                    quad_first + count,
+                ],
+                axis=1,
+            ).ravel()
             block_colors = None
             if first.color is not None and second.color is not None:
-                block_colors = np.concatenate([np.tile(first.color, (count, 1)),
-                                               np.tile(second.color, (count, 1))])
+                block_colors = np.concatenate(
+                    [np.tile(first.color, (count, 1)), np.tile(second.color, (count, 1))]
+                )
 
         positions.append(block)
         surface_normals.append(block_normals)
@@ -613,7 +776,7 @@ def build_from_stations(stations: List[Station], ring: np.ndarray,
         indices.append(block_indices + base)
         base += len(block)
 
-    attributes: Dict[str, np.ndarray] = {
+    attributes: dict[str, np.ndarray] = {
         'POSITION': np.concatenate(positions),
         'NORMAL': np.concatenate(surface_normals),
     }
@@ -625,8 +788,9 @@ def build_from_stations(stations: List[Station], ring: np.ndarray,
         attributes['TEXCOORD_0'] = uv
     if colors:
         attributes['COLOR_0'] = np.concatenate(colors)
-    primitive = Primitive(attributes, _without_degenerates(
-        attributes['POSITION'], np.concatenate(indices)))
+    primitive = Primitive(
+        attributes, _without_degenerates(attributes['POSITION'], np.concatenate(indices))
+    )
     if normals == 'path_edge':
         primitive = primitive.welded()
     primitive.extras['contour'] = contour_index
@@ -656,8 +820,9 @@ def _without_degenerates(positions: np.ndarray, indices: np.ndarray) -> np.ndarr
     return np.ascontiguousarray(tris[keep].ravel().astype(np.uint32))
 
 
-def _station_uv(station: Station, texture: str, contour_u: np.ndarray,
-                ring: np.ndarray) -> np.ndarray:
+def _station_uv(
+    station: Station, texture: str, contour_u: np.ndarray, ring: np.ndarray
+) -> np.ndarray:
     """One ring's texture coordinates, in whichever mode was asked for.
 
     The parameter modes read the contour's own arc length and the distance
@@ -666,11 +831,14 @@ def _station_uv(station: Station, texture: str, contour_u: np.ndarray,
     """
     if texture in GENERATED_MODES:
         placed = station.placed_xy if station.placed_xy is not None else ring
-        placed_normals = (station.placed_normal_xy
-                          if station.placed_normal_xy is not None
-                          else np.zeros_like(ring))
-        return generated_uv(texture, placed, placed_normals, ring,
-                            _contour_normals_2d(ring), station.arc_length)
+        placed_normals = (
+            station.placed_normal_xy
+            if station.placed_normal_xy is not None
+            else np.zeros_like(ring)
+        )
+        return generated_uv(
+            texture, placed, placed_normals, ring, _contour_normals_2d(ring), station.arc_length
+        )
     return np.column_stack([contour_u, np.full(len(contour_u), station.arc_length)])
 
 
@@ -691,10 +859,10 @@ def _contour_normals_2d(ring: np.ndarray) -> np.ndarray:
 
 #: Contour normals by array identity, for the ``model`` texture modes. Bounded
 #: by the number of distinct contours a process sweeps, which is small.
-_CONTOUR_NORMAL_CACHE: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}
+_CONTOUR_NORMAL_CACHE: dict[int, tuple[np.ndarray, np.ndarray]] = {}
 
 
-def _strip_pairs(stations: List[Station], closed_path: bool) -> List[Tuple[int, int]]:
+def _strip_pairs(stations: list[Station], closed_path: bool) -> list[tuple[int, int]]:
     """Which consecutive stations are joined by a strip."""
     pairs = [(i, i + 1) for i in range(len(stations) - 1) if stations[i].connect]
     if closed_path and stations and stations[-1].connect:
@@ -711,14 +879,16 @@ def _face_normals(corners: np.ndarray) -> np.ndarray:
     return np.divide(face, lengths, out=np.zeros_like(face), where=lengths > _TINY)
 
 
-def _contour_parameter(ring: np.ndarray, closed_contour: bool,
-                       texture: Optional[str]) -> np.ndarray:
+def _contour_parameter(ring: np.ndarray, closed_contour: bool, texture: str | None) -> np.ndarray:
     """Texture coordinate around the contour, by arc length."""
     count = len(ring)
     if texture is None:
         return np.zeros(count)
-    edges = np.roll(ring, -1, axis=0) - ring if closed_contour else np.diff(
-        ring, axis=0, append=ring[-1:])
+    edges = (
+        np.roll(ring, -1, axis=0) - ring
+        if closed_contour
+        else np.diff(ring, axis=0, append=ring[-1:])
+    )
     lengths = np.linalg.norm(edges, axis=1)
     running = np.concatenate([[0.0], np.cumsum(lengths)[:-1]])
     total = float(lengths.sum())
@@ -729,10 +899,20 @@ def _contour_parameter(ring: np.ndarray, closed_contour: bool,
 
 # -- caps -----------------------------------------------------------------
 
-def _caps(geometry: PathFrames, rings: List[np.ndarray], supplied_normals,
-          closed_contour: bool, begin: bool, end: bool, texture: Optional[str],
-          scale_values: np.ndarray, twist_values: np.ndarray,
-          min_angle: Optional[float], max_area: Optional[float]) -> Mesh:
+
+def _caps(
+    geometry: PathFrames,
+    rings: list[np.ndarray],
+    supplied_normals,
+    closed_contour: bool,
+    begin: bool,
+    end: bool,
+    texture: str | None,
+    scale_values: np.ndarray,
+    twist_values: np.ndarray,
+    min_angle: float | None,
+    max_area: float | None,
+) -> Mesh:
     """Flat faces closing the ends, tessellated as 2D outlines.
 
     All the contours are tessellated together, so a shape with holes gets a cap
@@ -758,8 +938,7 @@ def _caps(geometry: PathFrames, rings: List[np.ndarray], supplied_normals,
         if twist:
             cosine, sine = np.cos(twist), np.sin(twist)
             xy = xy @ np.array([[cosine, -sine], [sine, cosine]]).T
-        positions = (geometry.origin[index]
-                     + xy[:, 0:1] * right + xy[:, 1:2] * up)
+        positions = geometry.origin[index] + xy[:, 0:1] * right + xy[:, 1:2] * up
         # The begin cap faces back down the path and the end cap faces along it.
         facing = forward if at_end else -forward
         triangles = result.triangles if at_end else result.triangles[:, ::-1]
@@ -771,7 +950,11 @@ def _caps(geometry: PathFrames, rings: List[np.ndarray], supplied_normals,
             span = np.ptp(result.points, axis=0)
             span[span <= _TINY] = 1.0
             attributes['TEXCOORD_0'] = (result.points - result.points.min(axis=0)) / span
-        primitives.append(Primitive(attributes,
-                                    triangles.ravel().astype(np.uint32),
-                                    extras={'cap': 'end' if at_end else 'begin'}))
+        primitives.append(
+            Primitive(
+                attributes,
+                triangles.ravel().astype(np.uint32),
+                extras={'cap': 'end' if at_end else 'begin'},
+            )
+        )
     return Mesh(primitives)

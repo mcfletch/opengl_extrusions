@@ -23,20 +23,27 @@ never wrong, and fast in the common case.
     >>> incircle((0, 0), (1, 0), (1, 1), (0, 1))
     0
 """
+
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from importlib import import_module
 from math import isfinite
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 
 from opengl_extrusions.types import Point
 
 __all__ = [
-    'orient2d', 'incircle', 'exact_orient2d', 'exact_incircle',
-    'orient2d_many', 'NonFinitePointError', 'ACCELERATED',
+    'orient2d',
+    'incircle',
+    'exact_orient2d',
+    'exact_incircle',
+    'orient2d_many',
+    'NonFinitePointError',
+    'ACCELERATED',
 ]
 
 #: The compiled filter, when it was built. It answers the same questions the
@@ -45,15 +52,15 @@ __all__ = [
 #: is reached in exactly the same cases either way. Set
 #: ``OPENGL_EXTRUSIONS_NO_ACCEL=1`` to ignore it, which is how the test suite
 #: checks the two agree.
-_native: Optional[Any]
-try:                                             # pragma: no cover - build-dependent
+_native: Any | None
+try:  # pragma: no cover - build-dependent
     if os.environ.get('OPENGL_EXTRUSIONS_NO_ACCEL'):
         raise ImportError('accelerator disabled by the environment')
     # Imported by name so that a checker on a machine where it was never
     # built does not report a missing module: whether it exists is a
     # property of the install, not of the source.
     _native = import_module('opengl_extrusions._predicates_native')
-except ImportError:                              # pragma: no cover - no compiler
+except ImportError:  # pragma: no cover - no compiler
     _native = None
 
 #: Whether the compiled filter is in use.
@@ -62,7 +69,7 @@ ACCELERATED = _native is not None
 
 #: Unit roundoff for IEEE-754 binary64: the largest relative error a single
 #: correctly-rounded operation can introduce.
-_U = 2.0 ** -53
+_U = 2.0**-53
 
 #: Error bound multipliers, as multiples of the unit roundoff, for the floating
 #: point evaluations below. Each is a deliberately loose bound on the accumulated
@@ -84,7 +91,7 @@ class NonFinitePointError(ValueError):
     """
 
 
-def _coords(*points: Point) -> Tuple[float, ...]:
+def _coords(*points: Point) -> tuple[float, ...]:
     """Flatten points to floats, rejecting anything not finite."""
     out = []
     for p in points:
@@ -139,7 +146,8 @@ def orient2d(a: Point, b: Point, c: Point) -> int:
             settled = _native.orient2d(a, b, c)
         except ValueError:
             raise NonFinitePointError(
-                'point %r has a non-finite coordinate' % (tuple(a),)) from None
+                'point %r has a non-finite coordinate' % (tuple(a),)
+            ) from None
         if settled != _native.UNCERTAIN:
             return int(settled)
         return exact_orient2d(a, b, c)
@@ -166,9 +174,11 @@ def exact_incircle(a: Point, b: Point, c: Point, d: Point) -> int:
     alift = adx * adx + ady * ady
     blift = bdx * bdx + bdy * bdy
     clift = cdx * cdx + cdy * cdy
-    return _sign(alift * (bdx * cdy - cdx * bdy)
-                 + blift * (cdx * ady - adx * cdy)
-                 + clift * (adx * bdy - bdx * ady))
+    return _sign(
+        alift * (bdx * cdy - cdx * bdy)
+        + blift * (cdx * ady - adx * cdy)
+        + clift * (adx * bdy - bdx * ady)
+    )
 
 
 def incircle(a: Point, b: Point, c: Point, d: Point) -> int:
@@ -187,7 +197,8 @@ def incircle(a: Point, b: Point, c: Point, d: Point) -> int:
             settled = _native.incircle(a, b, c, d)
         except ValueError:
             raise NonFinitePointError(
-                'point %r has a non-finite coordinate' % (tuple(a),)) from None
+                'point %r has a non-finite coordinate' % (tuple(a),)
+            ) from None
         if settled != _native.UNCERTAIN:
             return int(settled)
         return exact_incircle(a, b, c, d)
@@ -201,12 +212,12 @@ def incircle(a: Point, b: Point, c: Point, d: Point) -> int:
     bdxcdy, cdxbdy = bdx * cdy, cdx * bdy
     cdxady, adxcdy = cdx * ady, adx * cdy
     adxbdy, bdxady = adx * bdy, bdx * ady
-    det = (alift * (bdxcdy - cdxbdy)
-           + blift * (cdxady - adxcdy)
-           + clift * (adxbdy - bdxady))
-    magnitude = (alift * (abs(bdxcdy) + abs(cdxbdy))
-                 + blift * (abs(cdxady) + abs(adxcdy))
-                 + clift * (abs(adxbdy) + abs(bdxady)))
+    det = alift * (bdxcdy - cdxbdy) + blift * (cdxady - adxcdy) + clift * (adxbdy - bdxady)
+    magnitude = (
+        alift * (abs(bdxcdy) + abs(cdxbdy))
+        + blift * (abs(cdxady) + abs(adxcdy))
+        + clift * (abs(adxbdy) + abs(bdxady))
+    )
     if abs(det) > _INCIRCLE_BOUND * magnitude:
         return _sign(det)
     if magnitude == 0.0:

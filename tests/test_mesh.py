@@ -1,12 +1,13 @@
 """The mesh structure handed back to callers, and the checks it can run on itself."""
+
 import json
 import struct
 
 import numpy as np
 import pytest
 
-from opengl_extrusions.mesh import Mesh, Primitive, MeshError
-from opengl_extrusions.weld import weld_vertices, is_manifold, is_watertight, boundary_edges
+from opengl_extrusions.mesh import Mesh, MeshError, Primitive
+from opengl_extrusions.weld import boundary_edges, is_manifold, is_watertight, weld_vertices
 
 
 def quad():
@@ -41,7 +42,8 @@ class TestPrimitive:
     def test_an_array_already_in_the_right_form_is_not_copied(self):
         """The contract that makes handing a mesh to a renderer free."""
         positions = np.ascontiguousarray(
-            np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0)], dtype=np.float32))
+            np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0)], dtype=np.float32)
+        )
         p = Primitive(attributes={'POSITION': positions})
         assert p.positions is positions
         assert np.shares_memory(p.positions, positions)
@@ -113,19 +115,18 @@ class TestPrimitive:
 
     def test_transform_moves_positions_and_rotates_normals(self):
         p = quad()
-        matrix = np.array([[0, -1, 0, 5],
-                           [1, 0, 0, 0],
-                           [0, 0, 1, 0],
-                           [0, 0, 0, 1]], 'f')
+        matrix = np.array([[0, -1, 0, 5], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], 'f')
         moved = p.transformed(matrix)
         assert np.allclose(moved.positions[1], (5, 1, 0))
         assert np.allclose(moved.normals[0], (0, 0, 1))
 
     def test_transform_with_non_uniform_scale_keeps_normals_perpendicular(self):
-        p = Primitive(attributes={
-            'POSITION': np.array([(0, 0, 0), (1, 0, 0), (0, 0, 1)], 'f'),
-            'NORMAL': np.array([(0, 1, 0)] * 3, 'f'),
-        })
+        p = Primitive(
+            attributes={
+                'POSITION': np.array([(0, 0, 0), (1, 0, 0), (0, 0, 1)], 'f'),
+                'NORMAL': np.array([(0, 1, 0)] * 3, 'f'),
+            }
+        )
         matrix = np.diag([1.0, 10.0, 1.0, 1.0]).astype('f')
         moved = p.transformed(matrix)
         assert np.allclose(np.linalg.norm(moved.normals, axis=1), 1.0)
@@ -149,8 +150,9 @@ class TestMesh:
         assert len(m.primitives) == 2
 
     def test_bounds_span_every_primitive(self):
-        far = quad().transformed(np.array([[1, 0, 0, 10], [0, 1, 0, 0],
-                                           [0, 0, 1, 0], [0, 0, 0, 1]], 'f'))
+        far = quad().transformed(
+            np.array([[1, 0, 0, 10], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], 'f')
+        )
         low, high = Mesh([quad(), far]).bounds
         assert np.allclose(low, (0, 0, 0))
         assert np.allclose(high, (11, 1, 0))
@@ -167,8 +169,9 @@ class TestMesh:
         assert m.primitives[0].indices.max() == 7
 
     def test_merged_keeps_primitives_with_different_attributes_apart(self):
-        plain = Primitive(attributes={'POSITION': np.zeros((3, 3), 'f')},
-                          indices=np.array([0, 1, 2], np.uint32))
+        plain = Primitive(
+            attributes={'POSITION': np.zeros((3, 3), 'f')}, indices=np.array([0, 1, 2], np.uint32)
+        )
         m = Mesh([quad(), plain]).merged()
         assert len(m.primitives) == 2
 
@@ -201,10 +204,9 @@ class TestGLTF:
     def test_accessors_describe_the_data(self):
         doc = Mesh([quad()]).to_gltf()
         by_name = {a.get('name'): a for a in doc['accessors']}
-        position = doc['accessors'][doc['meshes'][0]['primitives'][0]
-                                    ['attributes']['POSITION']]
+        position = doc['accessors'][doc['meshes'][0]['primitives'][0]['attributes']['POSITION']]
         assert position['type'] == 'VEC3'
-        assert position['componentType'] == 5126        # FLOAT
+        assert position['componentType'] == 5126  # FLOAT
         assert position['count'] == 4
         assert position['min'] == [0.0, 0.0, 0.0]
         assert position['max'] == [1.0, 1.0, 0.0]
@@ -213,7 +215,7 @@ class TestGLTF:
     def test_indices_are_an_unsigned_int_accessor(self):
         doc = Mesh([quad()]).to_gltf()
         indices = doc['accessors'][doc['meshes'][0]['primitives'][0]['indices']]
-        assert indices['componentType'] == 5125        # UNSIGNED_INT
+        assert indices['componentType'] == 5125  # UNSIGNED_INT
         assert indices['count'] == 6
 
     def test_the_document_is_json_serialisable(self):
@@ -234,8 +236,8 @@ class TestGLTF:
     def test_glb_json_chunk_parses(self):
         blob = Mesh([quad()]).to_glb_bytes()
         chunk_length, chunk_type = struct.unpack('<II', blob[12:20])
-        assert chunk_type == 0x4E4F534A            # 'JSON'
-        doc = json.loads(blob[20:20 + chunk_length])
+        assert chunk_type == 0x4E4F534A  # 'JSON'
+        doc = json.loads(blob[20 : 20 + chunk_length])
         assert doc['asset']['version'] == '2.0'
 
     def test_glb_writes_a_file(self, tmp_path):
@@ -268,9 +270,13 @@ class TestWelding:
         assert len(unique) == 2
 
     def test_welding_a_primitive_preserves_its_geometry(self):
-        p = Primitive(attributes={
-            'POSITION': np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0),
-                                  (1, 0, 0), (1, 1, 0), (0, 1, 0)], 'f')})
+        p = Primitive(
+            attributes={
+                'POSITION': np.array(
+                    [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], 'f'
+                )
+            }
+        )
         welded = p.welded()
         assert welded.vertex_count == 4
         assert welded.triangle_count == 2
@@ -306,8 +312,9 @@ class TestTopology:
     def test_a_surface_split_for_shading_still_reads_as_closed(self):
         """Duplicated seam vertices are a shading decision, not a hole."""
         p = tetrahedron()
-        loose = Primitive(attributes={'POSITION': p.positions[p.indices]},
-                          indices=np.arange(12, dtype=np.uint32))
+        loose = Primitive(
+            attributes={'POSITION': p.positions[p.indices]}, indices=np.arange(12, dtype=np.uint32)
+        )
         assert loose.vertex_count == 12
         assert loose.is_watertight()
         assert loose.welded().vertex_count == 4
@@ -315,8 +322,7 @@ class TestTopology:
 
     def test_a_surface_with_a_triangle_missing_is_not_closed(self):
         p = tetrahedron()
-        holed = Primitive(attributes={'POSITION': p.positions},
-                          indices=p.indices[:9])
+        holed = Primitive(attributes={'POSITION': p.positions}, indices=p.indices[:9])
         assert not holed.is_watertight()
 
     def test_the_signed_volume_of_a_closed_mesh_is_positive_when_outward(self):

@@ -1,11 +1,17 @@
 """Contour builders and the frames a path carries them along."""
+
 import numpy as np
 import pytest
 
 from opengl_extrusions.contours import (
-    circle, rectangle, rounded_rectangle, star, regular_polygon, contour_normals,
+    circle,
+    contour_normals,
+    rectangle,
+    regular_polygon,
+    rounded_rectangle,
+    star,
 )
-from opengl_extrusions.frames import path_frames, FrameError
+from opengl_extrusions.frames import FrameError, path_frames
 from opengl_extrusions.planar import polygon_area, polygon_orientation
 
 

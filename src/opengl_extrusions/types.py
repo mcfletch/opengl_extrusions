@@ -4,9 +4,11 @@ Every function here accepts a NumPy array or anything NumPy would make one from
 -- a list of tuples, a list of lists, another array. These aliases say so once,
 rather than each signature guessing at it.
 """
+
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 import numpy as np
 

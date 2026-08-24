@@ -11,17 +11,22 @@ it roughly doubles the samples in the curved parts and leaves the straight parts
 alone, which is the whole point -- a road with two hairpins and a mile of
 straight should not pay for the hairpins over the whole mile.
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import numpy as np
 
 from opengl_extrusions.types import Points
 
 __all__ = [
-    'helix', 'catmull_rom', 'bezier', 'bspline', 'sample_adaptive',
-    'resample_uniform', 'arc_lengths', 'CurveError',
+    'helix',
+    'catmull_rom',
+    'bezier',
+    'bspline',
+    'sample_adaptive',
+    'resample_uniform',
+    'arc_lengths',
+    'CurveError',
 ]
 
 #: Below this, two samples are the same point.
@@ -37,10 +42,15 @@ class CurveError(ValueError):
     """A curve cannot be built or sampled as described."""
 
 
-def helix(start_radius: float = 1.0, delta_radius: float = 0.0,
-          start_z: float = 0.0, delta_z: float = 0.0,
-          start_angle: float = 0.0, sweep_angle: float = 2 * np.pi,
-          sides: int = 20) -> np.ndarray:
+def helix(
+    start_radius: float = 1.0,
+    delta_radius: float = 0.0,
+    start_z: float = 0.0,
+    delta_z: float = 0.0,
+    start_angle: float = 0.0,
+    sweep_angle: float = 2 * np.pi,
+    sides: int = 20,
+) -> np.ndarray:
     """Points along a helix about the z axis.
 
     ``delta_radius`` and ``delta_z`` are per full turn, so a helix of pitch 2
@@ -58,9 +68,13 @@ def helix(start_radius: float = 1.0, delta_radius: float = 0.0,
     return np.column_stack([radius * np.cos(angles), radius * np.sin(angles), height])
 
 
-def catmull_rom(points: Points, samples: Optional[int] = None,
-                tolerance: Optional[float] = None, closed: bool = False,
-                tension: float = 0.5) -> np.ndarray:
+def catmull_rom(
+    points: Points,
+    samples: int | None = None,
+    tolerance: float | None = None,
+    closed: bool = False,
+    tension: float = 0.5,
+) -> np.ndarray:
     """A smooth curve passing through every one of ``points``.
 
     The Catmull-Rom spline is the one to reach for when the control points are
@@ -76,19 +90,24 @@ def catmull_rom(points: Points, samples: Optional[int] = None,
     padded = _pad_for_catmull(control, closed)
 
     def evaluate(span: int, t: float) -> np.ndarray:
-        p0, p1, p2, p3 = padded[span:span + 4]
+        p0, p1, p2, p3 = padded[span : span + 4]
         m1 = tension * (p2 - p0)
         m2 = tension * (p3 - p1)
         t2, t3 = t * t, t * t * t
-        return ((2 * t3 - 3 * t2 + 1) * p1 + (t3 - 2 * t2 + t) * m1
-                + (-2 * t3 + 3 * t2) * p2 + (t3 - t2) * m2)
+        return (
+            (2 * t3 - 3 * t2 + 1) * p1
+            + (t3 - 2 * t2 + t) * m1
+            + (-2 * t3 + 3 * t2) * p2
+            + (t3 - t2) * m2
+        )
 
     spans = len(control) - (0 if closed else 1)
     return _sample_spans(evaluate, spans, samples, tolerance, closed)
 
 
-def bezier(control: Points, samples: Optional[int] = None,
-           tolerance: Optional[float] = None) -> np.ndarray:
+def bezier(
+    control: Points, samples: int | None = None, tolerance: float | None = None
+) -> np.ndarray:
     """A single Bezier curve of any degree through its control polygon.
 
     The curve starts at the first control point and ends at the last; the ones
@@ -96,21 +115,24 @@ def bezier(control: Points, samples: Optional[int] = None,
     """
     points = _as_points(control)
     if len(points) < 2:
-        raise CurveError('a Bezier curve needs at least 2 control points, got %d'
-                         % len(points))
+        raise CurveError('a Bezier curve needs at least 2 control points, got %d' % len(points))
     degree = len(points) - 1
     binomials = np.array([_binomial(degree, i) for i in range(degree + 1)], dtype=float)
 
     def evaluate(_span: int, t: float) -> np.ndarray:
-        powers = np.array([t ** i * (1.0 - t) ** (degree - i) for i in range(degree + 1)])
+        powers = np.array([t**i * (1.0 - t) ** (degree - i) for i in range(degree + 1)])
         return (binomials * powers) @ points
 
     return _sample_spans(evaluate, 1, samples, tolerance, False)
 
 
-def bspline(control: Points, degree: int = 3,
-            samples: Optional[int] = None, tolerance: Optional[float] = None,
-            closed: bool = False) -> np.ndarray:
+def bspline(
+    control: Points,
+    degree: int = 3,
+    samples: int | None = None,
+    tolerance: float | None = None,
+    closed: bool = False,
+) -> np.ndarray:
     """A uniform B-spline through its control cage.
 
     Smoother than a Catmull-Rom of the same points and easier to keep tame, at
@@ -121,8 +143,10 @@ def bspline(control: Points, degree: int = 3,
     if degree < 1:
         raise CurveError('degree must be at least 1, got %r' % (degree,))
     if len(points) <= degree:
-        raise CurveError('a degree-%d B-spline needs more than %d control points, got %d'
-                         % (degree, degree, len(points)))
+        raise CurveError(
+            'a degree-%d B-spline needs more than %d control points, got %d'
+            % (degree, degree, len(points))
+        )
     if closed:
         points = np.vstack([points, points[:degree]])
     knots = np.arange(len(points) + degree + 1, dtype=float)
@@ -134,9 +158,13 @@ def bspline(control: Points, degree: int = 3,
     return _sample_spans(evaluate, len(points) - degree, samples, tolerance, False)
 
 
-def sample_adaptive(evaluate, start: float = 0.0, stop: float = 1.0,
-                    tolerance: float = 1e-3,
-                    max_subdivision: int = MAX_SUBDIVISION) -> np.ndarray:
+def sample_adaptive(
+    evaluate,
+    start: float = 0.0,
+    stop: float = 1.0,
+    tolerance: float = 1e-3,
+    max_subdivision: int = MAX_SUBDIVISION,
+) -> np.ndarray:
     """Sample any function of one parameter to a chord-error tolerance.
 
     ``evaluate(t)`` returns a point. The interval is bisected wherever the
@@ -147,7 +175,7 @@ def sample_adaptive(evaluate, start: float = 0.0, stop: float = 1.0,
     if tolerance <= 0:
         raise CurveError('tolerance must be positive, got %r' % (tolerance,))
     first, last = np.asarray(evaluate(start), float), np.asarray(evaluate(stop), float)
-    out = [ (start, first) ]
+    out = [(start, first)]
     _bisect(evaluate, start, stop, first, last, tolerance, max_subdivision, out)
     out.append((stop, last))
     return np.asarray([point for _, point in out], dtype=np.float64)
@@ -191,17 +219,16 @@ def resample_uniform(points: Points, spacing: float) -> np.ndarray:
         return pts[:1]
     count = max(int(round(total / spacing)), 1)
     wanted = np.linspace(0.0, total, count + 1)
-    return np.column_stack([np.interp(wanted, lengths, pts[:, i])
-                            for i in range(pts.shape[1])])
+    return np.column_stack([np.interp(wanted, lengths, pts[:, i]) for i in range(pts.shape[1])])
 
 
 # -- helpers --------------------------------------------------------------
 
+
 def _as_points(points: Points) -> np.ndarray:
     pts = np.asarray(points, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] not in (2, 3):
-        raise CurveError('points must be an (N, 2) or (N, 3) array, got %r'
-                         % (pts.shape,))
+        raise CurveError('points must be an (N, 2) or (N, 3) array, got %r' % (pts.shape,))
     if len(pts) and not np.isfinite(pts).all():
         raise CurveError('points contain a non-finite coordinate')
     return pts
@@ -216,20 +243,19 @@ def _pad_for_catmull(control: np.ndarray, closed: bool) -> np.ndarray:
     return np.vstack([first, control, last])
 
 
-def _sample_spans(evaluate, spans: int, samples: Optional[int],
-                  tolerance: Optional[float], closed: bool) -> np.ndarray:
+def _sample_spans(
+    evaluate, spans: int, samples: int | None, tolerance: float | None, closed: bool
+) -> np.ndarray:
     """Walk every span of a piecewise curve, adaptively or at a fixed rate."""
     pieces = []
     for span in range(spans):
         if tolerance is not None:
-            piece = sample_adaptive(lambda t, s=span: evaluate(s, t),
-                                    0.0, 1.0, tolerance)
+            piece = sample_adaptive(lambda t, s=span: evaluate(s, t), 0.0, 1.0, tolerance)
         else:
             count = int(samples) if samples else 12
             if count < 2:
                 raise CurveError('samples must be at least 2, got %r' % (samples,))
-            piece = np.asarray([evaluate(span, t)
-                                for t in np.linspace(0.0, 1.0, count)])
+            piece = np.asarray([evaluate(span, t) for t in np.linspace(0.0, 1.0, count)])
         pieces.append(piece if span == 0 else piece[1:])
     out = np.vstack(pieces)
     if closed and len(out) > 1 and np.linalg.norm(out[0] - out[-1]) <= _TINY:
@@ -244,8 +270,7 @@ def _binomial(n: int, k: int) -> float:
     return result
 
 
-def _de_boor(u: float, span: int, degree: int, knots: np.ndarray,
-             points: np.ndarray) -> np.ndarray:
+def _de_boor(u: float, span: int, degree: int, knots: np.ndarray, points: np.ndarray) -> np.ndarray:
     """Evaluate a B-spline at ``u`` by repeated linear interpolation."""
     d = [points[span - degree + j].astype(np.float64) for j in range(degree + 1)]
     for r in range(1, degree + 1):

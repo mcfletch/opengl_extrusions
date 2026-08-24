@@ -21,15 +21,16 @@ do about them: where three spine points are collinear the Z axis is zero, and th
 Z of the nearest point that has one is used instead; where *every* point is
 collinear, the whole spine takes one arbitrary but consistent plane.
 """
+
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
 from opengl_extrusions.contours import contour_normals
-from opengl_extrusions.planar import polygon_orientation
 from opengl_extrusions.mesh import Mesh, Primitive
+from opengl_extrusions.planar import polygon_orientation
 from opengl_extrusions.sweep import Station, build_from_stations
 from opengl_extrusions.tessellate import tessellate
 
@@ -38,8 +39,7 @@ __all__ = ['vrml97_extrusion', 'spine_frames']
 _TINY = 1e-12
 
 #: VRML97's own defaults for the node, so a caller can build one from nothing.
-DEFAULT_CROSS_SECTION = ((1.0, 1.0), (1.0, -1.0), (-1.0, -1.0), (-1.0, 1.0),
-                         (1.0, 1.0))
+DEFAULT_CROSS_SECTION = ((1.0, 1.0), (1.0, -1.0), (-1.0, -1.0), (-1.0, 1.0), (1.0, 1.0))
 DEFAULT_SPINE = ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0))
 
 
@@ -74,18 +74,24 @@ def spine_frames(spine: np.ndarray, closed: bool):
     for i in range(1, count):
         if float(np.dot(z_axis[i], z_axis[i - 1])) < 0.0:
             z_axis[i] = -z_axis[i]
-    z_axis = _normalise_rows(z_axis - y_axis * np.einsum('ij,ij->i', z_axis,
-                                                         y_axis)[:, None])
+    z_axis = _normalise_rows(z_axis - y_axis * np.einsum('ij,ij->i', z_axis, y_axis)[:, None])
     x_axis = _normalise_rows(np.cross(y_axis, z_axis))
     return x_axis, y_axis, z_axis
 
 
-def vrml97_extrusion(cross_section=DEFAULT_CROSS_SECTION, spine=DEFAULT_SPINE, *,
-                     scale=None, orientation=None,
-                     begin_cap: bool = True, end_cap: bool = True,
-                     ccw: bool = True, crease_angle: float = 0.0,
-                     texture: Optional[str] = 'normalized',
-                     name: Optional[str] = None) -> Mesh:
+def vrml97_extrusion(
+    cross_section=DEFAULT_CROSS_SECTION,
+    spine=DEFAULT_SPINE,
+    *,
+    scale=None,
+    orientation=None,
+    begin_cap: bool = True,
+    end_cap: bool = True,
+    ccw: bool = True,
+    crease_angle: float = 0.0,
+    texture: str | None = 'normalized',
+    name: str | None = None,
+) -> Mesh:
     """Build the geometry of a VRML97 ``Extrusion`` node.
 
     :param cross_section: ``(N, 2)`` points in the SCP's x-z plane. A
@@ -148,8 +154,7 @@ def vrml97_extrusion(cross_section=DEFAULT_CROSS_SECTION, spine=DEFAULT_SPINE, *
     if closed_section:
         section = section[:-1]
     if len(section) < 3:
-        raise ValueError('a cross-section needs at least 3 distinct points, got %d'
-                         % len(section))
+        raise ValueError('a cross-section needs at least 3 distinct points, got %d' % len(section))
 
     steps = len(path)
     scales = _broadcast(scale, steps, 2, (1.0, 1.0), 'scale')
@@ -166,7 +171,7 @@ def vrml97_extrusion(cross_section=DEFAULT_CROSS_SECTION, spine=DEFAULT_SPINE, *
     section = np.column_stack([section[:, 0], -section[:, 1]])
     section_normals = contour_normals(section, closed=closed_section)
 
-    stations: List[Station] = []
+    stations: list[Station] = []
     travelled = 0.0
     for i in range(steps):
         if i:
@@ -180,12 +185,18 @@ def vrml97_extrusion(cross_section=DEFAULT_CROSS_SECTION, spine=DEFAULT_SPINE, *
         lengths = np.linalg.norm(flat, axis=1, keepdims=True)
         flat = np.divide(flat, lengths, out=np.zeros_like(flat), where=lengths > _TINY)
         normals = flat[:, 0:1] * basis_x + flat[:, 1:2] * basis_z
-        stations.append(Station(points, normals, travelled,
-                                connect=closed_spine or i < steps - 1))
+        stations.append(Station(points, normals, travelled, connect=closed_spine or i < steps - 1))
 
-    primitive = build_from_stations(stations, section, closed_section, closed_spine,
-                                    'edge' if crease_angle <= 0 else 'path_edge',
-                                    texture, travelled, reverse_winding=not ccw)
+    primitive = build_from_stations(
+        stations,
+        section,
+        closed_section,
+        closed_spine,
+        'edge' if crease_angle <= 0 else 'path_edge',
+        texture,
+        travelled,
+        reverse_winding=not ccw,
+    )
     mesh = Mesh([primitive], name=name)
 
     if closed_section and not closed_spine and (begin_cap or end_cap):
@@ -193,22 +204,54 @@ def vrml97_extrusion(cross_section=DEFAULT_CROSS_SECTION, spine=DEFAULT_SPINE, *
         # tessellated, which always produces counter-clockwise triangles whatever
         # went in. Without this the two disagree and the solid encloses nothing.
         handed = polygon_orientation(section) >= 0
-        mesh = mesh + _caps(section, stations, x_axis, y_axis, z_axis, path,
-                            scales, rotations, begin_cap, end_cap, ccw, texture,
-                            handed)
+        mesh = mesh + _caps(
+            section,
+            stations,
+            x_axis,
+            y_axis,
+            z_axis,
+            path,
+            scales,
+            rotations,
+            begin_cap,
+            end_cap,
+            ccw,
+            texture,
+            handed,
+        )
         mesh = mesh.merged()
     if crease_angle > 0:
         mesh = mesh.welded()
     for p in mesh.primitives:
-        p.extras.update({'generator': 'vrml97_extrusion',
-                         'parameters': {'closed_spine': closed_spine,
-                                        'closed_cross_section': closed_section,
-                                        'ccw': ccw, 'crease_angle': crease_angle}})
+        p.extras.update(
+            {
+                'generator': 'vrml97_extrusion',
+                'parameters': {
+                    'closed_spine': closed_spine,
+                    'closed_cross_section': closed_section,
+                    'ccw': ccw,
+                    'crease_angle': crease_angle,
+                },
+            }
+        )
     return mesh
 
 
-def _caps(section, stations, x_axis, y_axis, z_axis, path, scales, rotations,
-          begin_cap, end_cap, ccw, texture, outward: bool = True) -> Mesh:
+def _caps(
+    section,
+    stations,
+    x_axis,
+    y_axis,
+    z_axis,
+    path,
+    scales,
+    rotations,
+    begin_cap,
+    end_cap,
+    ccw,
+    texture,
+    outward: bool = True,
+) -> Mesh:
     """Flat faces closing the ends, tessellated from the cross-section.
 
     ``outward`` says whether the swept sides face outward, which depends on the
@@ -237,19 +280,22 @@ def _caps(section, stations, x_axis, y_axis, z_axis, path, scales, rotations,
             facing = -facing
         if not outward:
             facing = -facing
-        attributes = {'POSITION': positions,
-                      'NORMAL': np.tile(facing, (len(positions), 1))}
+        attributes = {'POSITION': positions, 'NORMAL': np.tile(facing, (len(positions), 1))}
         if texture is not None:
             span = np.ptp(result.points, axis=0)
             span[span <= _TINY] = 1.0
             attributes['TEXCOORD_0'] = (result.points - result.points.min(axis=0)) / span
-        primitives.append(Primitive(attributes, triangles.ravel().astype(np.uint32),
-                                    extras={'cap': 'end' if at_end else 'begin'}))
+        primitives.append(
+            Primitive(
+                attributes,
+                triangles.ravel().astype(np.uint32),
+                extras={'cap': 'end' if at_end else 'begin'},
+            )
+        )
     return Mesh(primitives)
 
 
-def _broadcast(value, steps: int, width: int, default: Sequence[float],
-               what: str) -> np.ndarray:
+def _broadcast(value, steps: int, width: int, default: Sequence[float], what: str) -> np.ndarray:
     """VRML's rule: one value applies to every point, or there is one each."""
     if value is None:
         return np.tile(np.asarray(default, dtype=np.float64), (steps, 1))
@@ -257,13 +303,15 @@ def _broadcast(value, steps: int, width: int, default: Sequence[float],
     if array.ndim == 1:
         array = array.reshape(1, -1)
     if array.shape[1] != width:
-        raise ValueError('%s must have %d components per entry, got %d'
-                         % (what, width, array.shape[1]))
+        raise ValueError(
+            '%s must have %d components per entry, got %d' % (what, width, array.shape[1])
+        )
     if len(array) == 1:
         return np.tile(array, (steps, 1))
     if len(array) != steps:
-        raise ValueError('%s must have 1 entry or one per spine point (%d), got %d'
-                         % (what, steps, len(array)))
+        raise ValueError(
+            '%s must have 1 entry or one per spine point (%d), got %d' % (what, steps, len(array))
+        )
     return array
 
 

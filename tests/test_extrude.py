@@ -4,10 +4,11 @@ Where a swept shape has an analytic answer -- a cylinder's area and volume, a
 box's corners -- these check against it rather than against a previous run, so a
 failure says the geometry is wrong rather than that it changed.
 """
+
 import numpy as np
 import pytest
 
-from opengl_extrusions import extrude, circle, rectangle
+from opengl_extrusions import circle, extrude, rectangle
 from opengl_extrusions.mesh import Mesh
 from opengl_extrusions.sweep import SweepError
 
@@ -110,8 +111,7 @@ class TestCaps:
         assert area == pytest.approx(sides + caps, rel=1e-2)
 
     def test_a_hollow_extrusion_is_watertight(self):
-        mesh = extrude([circle(2.0, 32), circle(1.0, 32)[::-1]],
-                       [(0, 0, 0), (0, 0, 1)]).welded()
+        mesh = extrude([circle(2.0, 32), circle(1.0, 32)[::-1]], [(0, 0, 0), (0, 0, 1)]).welded()
         assert mesh.primitives[0].is_watertight()
 
     def test_the_begin_cap_faces_backward(self):
@@ -180,8 +180,7 @@ class TestJoins:
     def test_a_round_join_keeps_the_contour_the_size_it_is(self):
         """The elbow is the tube turned, not the mitre ellipse swept round."""
         radius = 0.4
-        mesh = extrude(circle(radius, 24), CORNER, join='round', round_segments=6,
-                       caps=False)
+        mesh = extrude(circle(radius, 24), CORNER, join='round', round_segments=6, caps=False)
         assert _corner_reach(mesh) == pytest.approx(radius, rel=0.02)
 
     def test_a_mitre_reaches_further_than_the_tube_is_wide(self):
@@ -197,8 +196,9 @@ class TestJoins:
         corner, and the two sets face along different segments -- so the ring at
         the corner carries more distinct normals than a single set could hold.
         """
-        p = extrude(rectangle(0.6, 0.6), CORNER, join='angle', normals='edge',
-                    caps=False).primitives[0]
+        p = extrude(
+            rectangle(0.6, 0.6), CORNER, join='angle', normals='edge', caps=False
+        ).primitives[0]
         corner = np.array([0.0, 0.0, 2.0])
         near = np.linalg.norm(p.positions - corner, axis=1) < 0.65
         distinct = np.unique(np.round(p.normals[near], 4), axis=0)
@@ -211,15 +211,15 @@ class TestJoins:
 
 class TestNormalModes:
     def test_facet_normals_are_constant_across_each_face(self):
-        mesh = extrude(rectangle(1, 1), [(0, 0, 0), (0, 0, 2)], normals='facet',
-                       caps=False)
+        mesh = extrude(rectangle(1, 1), [(0, 0, 0), (0, 0, 2)], normals='facet', caps=False)
         p = mesh.primitives[0]
         for tri in p.triangles:
             assert np.allclose(p.normals[tri[0]], p.normals[tri[1]], atol=1e-6)
 
     def test_edge_normals_are_smooth_around_a_circle(self):
-        p = extrude(circle(1.0, 32), [(0, 0, 0), (0, 0, 1)], normals='edge',
-                    caps=False).primitives[0]
+        p = extrude(circle(1.0, 32), [(0, 0, 0), (0, 0, 1)], normals='edge', caps=False).primitives[
+            0
+        ]
         distinct = np.unique(np.round(p.normals, 6), axis=0)
         assert len(distinct) >= 32
 
@@ -236,8 +236,9 @@ class TestNormalModes:
     def test_supplied_contour_normals_are_used(self):
         square = rectangle(2, 2)
         outward = np.array([(-1, -1), (1, -1), (1, 1), (-1, 1)]) / np.sqrt(2)
-        p = extrude(square, [(0, 0, 0), (0, 0, 1)], contour_normals=outward,
-                    normals='edge', caps=False).primitives[0]
+        p = extrude(
+            square, [(0, 0, 0), (0, 0, 1)], contour_normals=outward, normals='edge', caps=False
+        ).primitives[0]
         assert np.allclose(np.linalg.norm(p.normals, axis=1), 1.0, atol=1e-6)
 
     def test_an_unknown_normal_mode_is_refused(self):
@@ -247,15 +248,15 @@ class TestNormalModes:
 
 class TestTextureCoordinates:
     def test_normalized_coordinates_span_zero_to_one(self):
-        p = extrude(circle(1.0, 16), STRAIGHT, texture='normalized',
-                    caps=False).primitives[0]
+        p = extrude(circle(1.0, 16), STRAIGHT, texture='normalized', caps=False).primitives[0]
         assert p.texcoords.min() >= -1e-6
         assert p.texcoords.max() <= 1.0 + 1e-6
         assert p.texcoords[:, 1].max() == pytest.approx(1.0, abs=1e-6)
 
     def test_arc_length_coordinates_measure_the_path(self):
-        p = extrude(circle(1.0, 16), [(0, 0, 0), (0, 0, 7)], texture='arc_length',
-                    caps=False).primitives[0]
+        p = extrude(
+            circle(1.0, 16), [(0, 0, 0), (0, 0, 7)], texture='arc_length', caps=False
+        ).primitives[0]
         assert p.texcoords[:, 1].max() == pytest.approx(7.0, abs=1e-6)
 
     def test_texture_coordinates_can_be_left_out(self):
@@ -268,8 +269,7 @@ class TestTextureCoordinates:
 
 class TestPerVertexParameters:
     def test_scale_narrows_the_tube(self):
-        mesh = extrude(circle(1.0, 32), STRAIGHT, scale=[1.0, 0.75, 0.5, 0.25],
-                       caps=False)
+        mesh = extrude(circle(1.0, 32), STRAIGHT, scale=[1.0, 0.75, 0.5, 0.25], caps=False)
         p = mesh.primitives[0]
         near = p.positions[np.isclose(p.positions[:, 2], 0.0)]
         far = p.positions[np.isclose(p.positions[:, 2], 3.0)]
@@ -277,28 +277,29 @@ class TestPerVertexParameters:
         assert np.linalg.norm(far[:, :2], axis=1).max() == pytest.approx(0.25, rel=1e-6)
 
     def test_a_two_component_scale_squashes_one_axis(self):
-        mesh = extrude(circle(1.0, 32), [(0, 0, 0), (0, 0, 1)],
-                       scale=[(1.0, 1.0), (2.0, 0.5)], caps=False)
-        far = mesh.primitives[0].positions[np.isclose(
-            mesh.primitives[0].positions[:, 2], 1.0)]
+        mesh = extrude(
+            circle(1.0, 32), [(0, 0, 0), (0, 0, 1)], scale=[(1.0, 1.0), (2.0, 0.5)], caps=False
+        )
+        far = mesh.primitives[0].positions[np.isclose(mesh.primitives[0].positions[:, 2], 1.0)]
         assert far[:, 0].max() == pytest.approx(2.0, rel=1e-6)
         assert far[:, 1].max() == pytest.approx(0.5, rel=1e-6)
 
     def test_twist_rotates_the_contour_along_the_path(self):
-        mesh = extrude(rectangle(1, 1), [(0, 0, 0), (0, 0, 1)],
-                       twist=[0.0, np.pi / 2], caps=False)
+        mesh = extrude(rectangle(1, 1), [(0, 0, 0), (0, 0, 1)], twist=[0.0, np.pi / 2], caps=False)
         p = mesh.primitives[0]
         far = p.positions[np.isclose(p.positions[:, 2], 1.0)]
         assert np.allclose(np.sort(np.abs(far[:, 0])), [0.5] * len(far), atol=1e-9)
 
     def test_a_scalar_scale_applies_everywhere(self):
         mesh = extrude(circle(1.0, 16), STRAIGHT, scale=0.5, caps=False)
-        assert np.linalg.norm(mesh.primitives[0].positions[:, :2], axis=1).max() \
-            == pytest.approx(0.5, rel=1e-6)
+        assert np.linalg.norm(mesh.primitives[0].positions[:, :2], axis=1).max() == pytest.approx(
+            0.5, rel=1e-6
+        )
 
     def test_colours_become_a_vertex_attribute(self):
-        mesh = extrude(circle(1.0, 8), [(0, 0, 0), (0, 0, 1)],
-                       color=[(1, 0, 0), (0, 0, 1)], caps=False)
+        mesh = extrude(
+            circle(1.0, 8), [(0, 0, 0), (0, 0, 1)], color=[(1, 0, 0), (0, 0, 1)], caps=False
+        )
         colors = mesh.primitives[0].colors
         assert colors is not None and colors.shape[1] == 4
         assert np.allclose(colors[:, 3], 1.0)
@@ -319,12 +320,10 @@ class TestClosedPath:
     def test_a_closed_path_makes_a_torus(self):
         angles = np.linspace(0, 2 * np.pi, 96, endpoint=False)
         path = np.column_stack([3 * np.cos(angles), 3 * np.sin(angles), np.zeros(96)])
-        mesh = extrude(circle(0.5, 32), path, closed_path=True, up=(0, 0, 1),
-                       caps=False).welded()
+        mesh = extrude(circle(0.5, 32), path, closed_path=True, up=(0, 0, 1), caps=False).welded()
         p = mesh.primitives[0]
         assert p.is_watertight()
-        assert p.signed_volume() == pytest.approx(
-            2 * np.pi ** 2 * 3 * 0.25, rel=2e-2)
+        assert p.signed_volume() == pytest.approx(2 * np.pi**2 * 3 * 0.25, rel=2e-2)
 
     def test_a_closed_path_takes_no_caps(self):
         angles = np.linspace(0, 2 * np.pi, 24, endpoint=False)

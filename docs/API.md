@@ -314,12 +314,12 @@ See [CURVES.md](CURVES.md).
 attribute name.
 
 ```python
-mesh.primitives[0].positions       # (V, 3) float32, C-contiguous
-mesh.primitives[0].normals         # (V, 3)
-mesh.primitives[0].texcoords       # (V, 2)
-mesh.primitives[0].indices         # (T*3,) uint32
-mesh.primitives[0].attributes      # the same, under their glTF names
-mesh.primitives[0].arrays()        # under a renderer's keyword names
+mesh.primitives[0].positions  # (V, 3) float32, C-contiguous
+mesh.primitives[0].normals  # (V, 3)
+mesh.primitives[0].texcoords  # (V, 2)
+mesh.primitives[0].indices  # (T*3,) uint32
+mesh.primitives[0].attributes  # the same, under their glTF names
+mesh.primitives[0].arrays()  # under a renderer's keyword names
 ```
 
 ### This is the form OpenGLContext's glTF renderer already works in

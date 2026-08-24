@@ -4,12 +4,19 @@ Everything a triangulator cannot cope with is dealt with here: repeated points,
 points too close to tell apart, contours that cross themselves or each other,
 and vertices sitting in the middle of somebody else's edge.
 """
+
 import numpy as np
 import pytest
 
 from opengl_extrusions.planar import (
-    clean_contour, polygon_area, polygon_orientation, point_in_polygon,
-    build_pslg, winding_at, PSLG, DegenerateContourError,
+    PSLG,
+    DegenerateContourError,
+    build_pslg,
+    clean_contour,
+    point_in_polygon,
+    polygon_area,
+    polygon_orientation,
+    winding_at,
 )
 from opengl_extrusions.predicates import NonFinitePointError
 
@@ -17,10 +24,10 @@ from opengl_extrusions.predicates import NonFinitePointError
 #: ValueError; both are ValueError subclasses, which is what a caller catches.
 NonFiniteOrValue = (NonFinitePointError, ValueError)
 
-SQUARE = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]           # counter-clockwise
+SQUARE = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]  # counter-clockwise
 SQUARE_CW = SQUARE[::-1]
-HOLE = [(0.25, 0.25), (0.25, 0.75), (0.75, 0.75), (0.75, 0.25)]     # clockwise
-BOWTIE = [(0.0, 0.0), (1.0, 1.0), (1.0, 0.0), (0.0, 1.0)]           # crosses itself
+HOLE = [(0.25, 0.25), (0.25, 0.75), (0.75, 0.75), (0.75, 0.25)]  # clockwise
+BOWTIE = [(0.0, 0.0), (1.0, 1.0), (1.0, 0.0), (0.0, 1.0)]  # crosses itself
 
 
 class TestCleanContour:
@@ -50,8 +57,7 @@ class TestCleanContour:
         assert len(out) == 3
 
     def test_a_collinear_spike_is_removed_when_asked(self):
-        out = clean_contour([(0, 0), (1, 0), (2, 0), (1, 0), (1, 1)],
-                            remove_collinear=True)
+        out = clean_contour([(0, 0), (1, 0), (2, 0), (1, 0), (1, 1)], remove_collinear=True)
         assert len(out) >= 3
 
     def test_fewer_than_three_distinct_points_is_degenerate(self):
@@ -124,9 +130,9 @@ class TestBuildPSLG:
 
     def test_winding_cancels_inside_a_hole(self):
         g = build_pslg([SQUARE, HOLE])
-        assert winding_at(g, (0.5, 0.5)) == 0        # in the hole
-        assert winding_at(g, (0.1, 0.1)) == 1        # in the ring
-        assert winding_at(g, (5.0, 5.0)) == 0        # outside
+        assert winding_at(g, (0.5, 0.5)) == 0  # in the hole
+        assert winding_at(g, (0.1, 0.1)) == 1  # in the ring
+        assert winding_at(g, (5.0, 5.0)) == 0  # outside
 
     def test_two_stacked_copies_wind_twice(self):
         g = build_pslg([SQUARE, SQUARE])
@@ -145,8 +151,8 @@ class TestBuildPSLG:
 
     def test_a_self_crossing_contour_is_split_at_the_crossing(self):
         g = build_pslg([BOWTIE])
-        assert len(g.points) == 5           # four corners plus the crossing
-        assert len(g.edges) == 6            # two whole edges, two split in half
+        assert len(g.points) == 5  # four corners plus the crossing
+        assert len(g.edges) == 6  # two whole edges, two split in half
         crossing = g.points[np.argmin(np.linalg.norm(g.points - (0.5, 0.5), axis=1))]
         assert np.allclose(crossing, (0.5, 0.5))
 
@@ -154,7 +160,7 @@ class TestBuildPSLG:
         a = [(0, 0), (2, 0), (2, 2), (0, 2)]
         b = [(1, 1), (3, 1), (3, 3), (1, 3)]
         g = build_pslg([a, b])
-        assert len(g.points) == 10          # 8 corners + 2 crossings
+        assert len(g.points) == 10  # 8 corners + 2 crossings
         assert winding_at(g, (0.5, 0.5)) == 1
         assert winding_at(g, (1.5, 1.5)) == 2
         assert winding_at(g, (2.5, 2.5)) == 1
@@ -162,18 +168,15 @@ class TestBuildPSLG:
     def test_a_vertex_lying_on_another_edge_splits_it(self):
         """A T-junction, which a triangulation cannot leave unsplit."""
         a = [(0, 0), (2, 0), (2, 2), (0, 2)]
-        b = [(1, 0), (1.5, -1), (0.5, -1)]      # its first point sits on a's bottom edge
+        b = [(1, 0), (1.5, -1), (0.5, -1)]  # its first point sits on a's bottom edge
         g = build_pslg([a, b])
-        bottom = [tuple(g.points[i]) for e in g.edges for i in e
-                  if g.points[i][1] == 0.0]
+        bottom = [tuple(g.points[i]) for e in g.edges for i in e if g.points[i][1] == 0.0]
         assert (1.0, 0.0) in bottom
         # a's bottom edge, once (2,0)..(0,0), is now the two pieces either side
         # of the touching vertex; b's own edges leave the axis immediately.
-        on_axis = [e for e in g.edges
-                   if g.points[e[0]][1] == 0 and g.points[e[1]][1] == 0]
+        on_axis = [e for e in g.edges if g.points[e[0]][1] == 0 and g.points[e[1]][1] == 0]
         assert len(on_axis) == 2
-        spans = sorted(tuple(sorted((g.points[e[0]][0], g.points[e[1]][0])))
-                       for e in on_axis)
+        spans = sorted(tuple(sorted((g.points[e[0]][0], g.points[e[1]][0]))) for e in on_axis)
         assert spans == [(0.0, 1.0), (1.0, 2.0)]
 
     def test_near_duplicate_points_merge(self):
@@ -188,28 +191,37 @@ class TestBuildPSLG:
         change and is not a boundary; the outline that survives is the union's.
         """
         a = [(0, 0), (4, 0), (4, 1), (0, 1)]
-        b = [(1, 0), (1, -1), (3, -1), (3, 0)]     # shares x in 1..3 of a's bottom edge
+        b = [(1, 0), (1, -1), (3, -1), (3, 0)]  # shares x in 1..3 of a's bottom edge
         g = build_pslg([a, b])
         assert winding_at(g, (2.0, 0.5)) == 1
         assert winding_at(g, (2.0, -0.5)) == 1
-        shared = [e for e in g.edges
-                  if g.points[e[0]][1] == 0 and g.points[e[1]][1] == 0
-                  and {g.points[e[0]][0], g.points[e[1]][0]} == {1.0, 3.0}]
+        shared = [
+            e
+            for e in g.edges
+            if g.points[e[0]][1] == 0
+            and g.points[e[1]][1] == 0
+            and {g.points[e[0]][0], g.points[e[1]][0]} == {1.0, 3.0}
+        ]
         assert shared == [], 'the doubly-traversed stretch is not a boundary'
 
     def test_collinear_overlap_of_opposed_rings_keeps_the_shared_edge(self):
         """The same two rings wound oppositely stay two regions, with a wall between."""
         a = [(0, 0), (4, 0), (4, 1), (0, 1)]
-        b = [(1, 0), (3, 0), (3, -1), (1, -1)]     # clockwise
+        b = [(1, 0), (3, 0), (3, -1), (1, -1)]  # clockwise
         g = build_pslg([a, b])
         assert winding_at(g, (2.0, 0.5)) == 1
         assert winding_at(g, (2.0, -0.5)) == -1
-        shared = [e for e in g.edges
-                  if g.points[e[0]][1] == 0 and g.points[e[1]][1] == 0
-                  and {g.points[e[0]][0], g.points[e[1]][0]} == {1.0, 3.0}]
+        shared = [
+            e
+            for e in g.edges
+            if g.points[e[0]][1] == 0
+            and g.points[e[1]][1] == 0
+            and {g.points[e[0]][0], g.points[e[1]][0]} == {1.0, 3.0}
+        ]
         assert len(shared) == 1
-        assert abs(g.winding[[i for i, e in enumerate(g.edges)
-                              if list(e) == list(shared[0])][0]]) == 2
+        assert (
+            abs(g.winding[[i for i, e in enumerate(g.edges) if list(e) == list(shared[0])][0]]) == 2
+        )
 
     def test_an_empty_contour_list_is_an_empty_graph(self):
         g = build_pslg([])
@@ -240,11 +252,13 @@ class TestBuildPSLG:
     def test_edges_never_cross_after_construction(self):
         """The point of the whole pass: what comes out is planar."""
         from opengl_extrusions.planar import segments_cross
+
         g = build_pslg([BOWTIE, SQUARE, HOLE])
         for i in range(len(g.edges)):
             for j in range(i + 1, len(g.edges)):
                 e, f = g.edges[i], g.edges[j]
                 if set(e) & set(f):
                     continue
-                assert not segments_cross(g.points[e[0]], g.points[e[1]],
-                                          g.points[f[0]], g.points[f[1]])
+                assert not segments_cross(
+                    g.points[e[0]], g.points[e[1]], g.points[f[0]], g.points[f[1]]
+                )

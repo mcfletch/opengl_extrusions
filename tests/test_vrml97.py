@@ -1,12 +1,16 @@
 """VRML97's Extrusion node, tangents, level of detail and colliders."""
+
 import numpy as np
 import pytest
 
 from opengl_extrusions import circle, extrude, polycylinder
-from opengl_extrusions.vrml97 import vrml97_extrusion, spine_frames
 from opengl_extrusions.tangents import (
-    generate_tangents, with_tangents, levels_of_detail, to_collider,
+    generate_tangents,
+    levels_of_detail,
+    to_collider,
+    with_tangents,
 )
+from opengl_extrusions.vrml97 import spine_frames, vrml97_extrusion
 
 UNIT_SQUARE = [(1, 1), (1, -1), (-1, -1), (-1, 1), (1, 1)]
 
@@ -60,8 +64,9 @@ class TestVRML97Extrusion:
         assert inward.primitives[0].signed_volume() < 0
 
     def test_scale_resizes_the_cross_section_along_the_spine(self):
-        mesh = vrml97_extrusion(spine=[(0, 0, 0), (0, 2, 0)],
-                                scale=[(1, 1), (0.25, 0.25)], end_cap=True)
+        mesh = vrml97_extrusion(
+            spine=[(0, 0, 0), (0, 2, 0)], scale=[(1, 1), (0.25, 0.25)], end_cap=True
+        )
         p = mesh.primitives[0].positions
         top = p[np.isclose(p[:, 1], 2.0)]
         assert np.abs(top[:, 0]).max() == pytest.approx(0.25, abs=1e-6)
@@ -73,9 +78,11 @@ class TestVRML97Extrusion:
         assert high[2] == pytest.approx(3.0, abs=1e-6)
 
     def test_orientation_turns_the_cross_section(self):
-        mesh = vrml97_extrusion(cross_section=[(1, 0), (0, 1), (-1, 0), (0, -1), (1, 0)],
-                                spine=[(0, 0, 0), (0, 1, 0)],
-                                orientation=[(0, 1, 0, 0.0), (0, 1, 0, np.pi / 4)])
+        mesh = vrml97_extrusion(
+            cross_section=[(1, 0), (0, 1), (-1, 0), (0, -1), (1, 0)],
+            spine=[(0, 0, 0), (0, 1, 0)],
+            orientation=[(0, 1, 0, 0.0), (0, 1, 0, np.pi / 4)],
+        )
         p = mesh.primitives[0].positions
         top = p[np.isclose(p[:, 1], 1.0)]
         assert np.abs(top[:, 0]).max() == pytest.approx(np.sqrt(0.5), abs=1e-6)
@@ -107,8 +114,9 @@ class TestVRML97Extrusion:
         assert one.triangle_count < both.triangle_count
 
     def test_an_open_cross_section_makes_a_sheet(self):
-        mesh = vrml97_extrusion(cross_section=[(-1, 0), (0, 0.5), (1, 0)],
-                                spine=[(0, 0, 0), (0, 3, 0)])
+        mesh = vrml97_extrusion(
+            cross_section=[(-1, 0), (0, 0.5), (1, 0)], spine=[(0, 0, 0), (0, 3, 0)]
+        )
         assert mesh.triangle_count == 4
 
     def test_a_crease_angle_smooths_the_surface(self):
@@ -133,8 +141,7 @@ class TestVRML97Extrusion:
 
     def test_a_wrongly_sized_scale_is_refused(self):
         with pytest.raises(ValueError):
-            vrml97_extrusion(spine=[(0, 0, 0), (0, 1, 0), (0, 2, 0)],
-                             scale=[(1, 1), (2, 2)])
+            vrml97_extrusion(spine=[(0, 0, 0), (0, 1, 0), (0, 2, 0)], scale=[(1, 1), (2, 2)])
 
     def test_a_non_finite_spine_is_refused(self):
         with pytest.raises(ValueError):
@@ -158,7 +165,7 @@ class TestVRML97Extrusion:
         """
         section = np.vstack([circle(0.32, 24), circle(0.32, 24)[:1]])
         spine = [(0, -0.75, 0), (0, 0.75, 0)]
-        expected = np.pi * 0.32 ** 2 * 1.5
+        expected = np.pi * 0.32**2 * 1.5
         outward = vrml97_extrusion(cross_section=section[::-1], spine=spine).welded()
         inward = vrml97_extrusion(cross_section=section, spine=spine).welded()
         assert outward.primitives[0].signed_volume() == pytest.approx(expected, rel=2e-2)
@@ -178,8 +185,7 @@ class TestTangents:
         assert p.tangents is not None
         assert p.tangents.shape[1] == 4
         assert np.allclose(np.linalg.norm(p.tangents[:, :3], axis=1), 1.0, atol=1e-5)
-        assert np.allclose(np.einsum('ij,ij->i', p.tangents[:, :3], p.normals), 0,
-                           atol=1e-5)
+        assert np.allclose(np.einsum('ij,ij->i', p.tangents[:, :3], p.normals), 0, atol=1e-5)
 
     def test_handedness_is_plus_or_minus_one(self):
         mesh = with_tangents(polycylinder([(0, 0, 0), (0, 0, 2)], 0.5, sides=8))
@@ -193,28 +199,24 @@ class TestTangents:
         positions = np.array([(0, 0, 0), (1, 0, 0), (2, 0, 0)], 'f')
         normals = np.array([(0, 0, 1)] * 3, 'f')
         texcoords = np.zeros((3, 2), 'f')
-        tangents = generate_tangents(positions, normals, texcoords,
-                                     np.array([[0, 1, 2]]))
+        tangents = generate_tangents(positions, normals, texcoords, np.array([[0, 1, 2]]))
         assert np.allclose(np.linalg.norm(tangents[:, :3], axis=1), 1.0, atol=1e-5)
 
 
 class TestLevelsOfDetail:
     def test_each_level_is_coarser_than_the_last(self):
-        steps = levels_of_detail(polycylinder, levels=3, sides=32,
-                                 path=[(0, 0, 0), (0, 0, 1)])
+        steps = levels_of_detail(polycylinder, levels=3, sides=32, path=[(0, 0, 0), (0, 0, 1)])
         counts = [m.triangle_count for m in steps]
         assert counts == sorted(counts, reverse=True)
         assert len(set(counts)) == 3
 
     def test_the_first_level_is_what_was_asked_for(self):
-        steps = levels_of_detail(polycylinder, levels=2, sides=24,
-                                 path=[(0, 0, 0), (0, 0, 1)])
+        steps = levels_of_detail(polycylinder, levels=2, sides=24, path=[(0, 0, 0), (0, 0, 1)])
         plain = polycylinder([(0, 0, 0), (0, 0, 1)], sides=24)
         assert steps[0].triangle_count == plain.triangle_count
 
     def test_each_level_records_which_it_is(self):
-        steps = levels_of_detail(polycylinder, levels=3, sides=16,
-                                 path=[(0, 0, 0), (0, 0, 1)])
+        steps = levels_of_detail(polycylinder, levels=3, sides=16, path=[(0, 0, 0), (0, 0, 1)])
         assert [m.primitives[0].extras['lod'] for m in steps] == [0, 1, 2]
 
     def test_bad_arguments_are_refused(self):
@@ -243,12 +245,14 @@ class TestCollider:
 
     def test_an_empty_mesh_makes_an_empty_collider(self):
         from opengl_extrusions.mesh import Mesh
+
         collider = to_collider(Mesh([]))
         assert len(collider['positions']) == 0
         assert not collider['watertight']
 
     def test_a_swept_spline_collides(self):
         from opengl_extrusions import catmull_rom
+
         path = catmull_rom([(0, 0, 0), (2, 1, 0), (4, 0, 1)], tolerance=1e-2)
         collider = to_collider(extrude(circle(0.3, 12), path, frames='rmf'))
         assert collider['watertight']

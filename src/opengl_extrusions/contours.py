@@ -9,22 +9,26 @@ They are what makes a hexagonal tube shade like a cylinder rather than like a
 hexagon, and a caller who has them (from a curve the contour was sampled from,
 say) gets a better result by passing them than by letting them be inferred.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 import numpy as np
 
 from opengl_extrusions.types import Vector
 
 __all__ = [
-    'circle', 'regular_polygon', 'rectangle', 'rounded_rectangle', 'star',
+    'circle',
+    'regular_polygon',
+    'rectangle',
+    'rounded_rectangle',
+    'star',
     'contour_normals',
 ]
 
 
-def circle(radius: float = 1.0, sides: int = 16,
-           centre: Vector = (0.0, 0.0),
-           start_angle: float = 0.0) -> np.ndarray:
+def circle(
+    radius: float = 1.0, sides: int = 16, centre: Vector = (0.0, 0.0), start_angle: float = 0.0
+) -> np.ndarray:
     """A regular polygon approximating a circle, counter-clockwise.
 
     :param radius: distance from the centre to each vertex, so the polygon sits
@@ -38,13 +42,14 @@ def circle(radius: float = 1.0, sides: int = 16,
     if radius < 0:
         raise ValueError('radius must not be negative, got %r' % (radius,))
     angles = np.linspace(0.0, 2.0 * np.pi, int(sides), endpoint=False) + start_angle
-    return np.column_stack([centre[0] + radius * np.cos(angles),
-                            centre[1] + radius * np.sin(angles)])
+    return np.column_stack(
+        [centre[0] + radius * np.cos(angles), centre[1] + radius * np.sin(angles)]
+    )
 
 
-def regular_polygon(sides: int, radius: float = 1.0,
-                    centre: Vector = (0.0, 0.0),
-                    start_angle: float = 0.0) -> np.ndarray:
+def regular_polygon(
+    sides: int, radius: float = 1.0, centre: Vector = (0.0, 0.0), start_angle: float = 0.0
+) -> np.ndarray:
     """A regular polygon of ``sides`` vertices.
 
     The same shape :func:`circle` produces, under the name to reach for when the
@@ -53,21 +58,27 @@ def regular_polygon(sides: int, radius: float = 1.0,
     return circle(radius=radius, sides=sides, centre=centre, start_angle=start_angle)
 
 
-def rectangle(width: float = 1.0, height: float = 1.0,
-              centre: Vector = (0.0, 0.0)) -> np.ndarray:
+def rectangle(width: float = 1.0, height: float = 1.0, centre: Vector = (0.0, 0.0)) -> np.ndarray:
     """A rectangle centred on ``centre``, counter-clockwise."""
     if width <= 0 or height <= 0:
-        raise ValueError('rectangle needs a positive width and height, got %r x %r'
-                         % (width, height))
+        raise ValueError(
+            'rectangle needs a positive width and height, got %r x %r' % (width, height)
+        )
     hw, hh = width * 0.5, height * 0.5
     cx, cy = float(centre[0]), float(centre[1])
-    return np.array([(cx - hw, cy - hh), (cx + hw, cy - hh),
-                     (cx + hw, cy + hh), (cx - hw, cy + hh)], dtype=np.float64)
+    return np.array(
+        [(cx - hw, cy - hh), (cx + hw, cy - hh), (cx + hw, cy + hh), (cx - hw, cy + hh)],
+        dtype=np.float64,
+    )
 
 
-def rounded_rectangle(width: float = 1.0, height: float = 1.0, radius: float = 0.1,
-                      segments: int = 8,
-                      centre: Vector = (0.0, 0.0)) -> np.ndarray:
+def rounded_rectangle(
+    width: float = 1.0,
+    height: float = 1.0,
+    radius: float = 0.1,
+    segments: int = 8,
+    centre: Vector = (0.0, 0.0),
+) -> np.ndarray:
     """A rectangle with quarter-circle corners.
 
     ``radius`` is clamped to half the shorter side, so asking for a radius larger
@@ -81,12 +92,12 @@ def rounded_rectangle(width: float = 1.0, height: float = 1.0, radius: float = 0
     cx, cy = float(centre[0]), float(centre[1])
     steps = max(int(segments), 1)
     points = []
-    corners = ((hw, hh, 0.0), (-hw, hh, np.pi / 2),
-               (-hw, -hh, np.pi), (hw, -hh, np.pi * 1.5))
+    corners = ((hw, hh, 0.0), (-hw, hh, np.pi / 2), (-hw, -hh, np.pi), (hw, -hh, np.pi * 1.5))
     for ox, oy, base in corners:
         angles = base + np.linspace(0.0, np.pi / 2, steps + 1)
-        points.append(np.column_stack([cx + ox + radius * np.cos(angles),
-                                       cy + oy + radius * np.sin(angles)]))
+        points.append(
+            np.column_stack([cx + ox + radius * np.cos(angles), cy + oy + radius * np.sin(angles)])
+        )
     ring = np.concatenate(points, axis=0)
     # Consecutive corner arcs meet exactly where one ends and the next begins;
     # drop the repeat so the ring has no zero-length edges.
@@ -95,9 +106,13 @@ def rounded_rectangle(width: float = 1.0, height: float = 1.0, radius: float = 0
     return ring[keep]
 
 
-def star(points: int = 5, outer: float = 1.0, inner: float = 0.5,
-         centre: Vector = (0.0, 0.0),
-         start_angle: float = np.pi / 2) -> np.ndarray:
+def star(
+    points: int = 5,
+    outer: float = 1.0,
+    inner: float = 0.5,
+    centre: Vector = (0.0, 0.0),
+    start_angle: float = np.pi / 2,
+) -> np.ndarray:
     """A star of ``points`` spikes, alternating between two radii."""
     if points < 2:
         raise ValueError('a star needs at least 2 points, got %r' % (points,))
@@ -107,8 +122,7 @@ def star(points: int = 5, outer: float = 1.0, inner: float = 0.5,
     radii = np.empty(2 * int(points))
     radii[0::2] = outer
     radii[1::2] = inner
-    return np.column_stack([centre[0] + radii * np.cos(angles),
-                            centre[1] + radii * np.sin(angles)])
+    return np.column_stack([centre[0] + radii * np.cos(angles), centre[1] + radii * np.sin(angles)])
 
 
 def contour_normals(contour: np.ndarray, closed: bool = True) -> np.ndarray:
@@ -154,7 +168,7 @@ def _normalise(vectors: np.ndarray, fallback: np.ndarray | None = None) -> np.nd
     lengths = np.linalg.norm(vectors, axis=1, keepdims=True)
     out = np.divide(vectors, lengths, out=np.zeros_like(vectors), where=lengths > 0)
     if fallback is not None:
-        flat = (lengths[:, 0] == 0)
+        flat = lengths[:, 0] == 0
         if flat.any():
             out[flat] = fallback[flat]
     return out

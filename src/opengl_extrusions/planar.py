@@ -20,25 +20,35 @@ question: it walks from a triangle known to be outside and adds up the crossings
 Every geometric decision here goes through :mod:`opengl_extrusions.predicates`,
 so "do these cross" and "is this vertex on that edge" have exact answers.
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from math import fsum
-from typing import Iterable, List, Tuple
 
 import numpy as np
 
+from opengl_extrusions.predicates import (
+    NonFinitePointError,
+    _scaled_ints,
+    _sign,
+    orient2d,
+)
 from opengl_extrusions.types import Point
 
-from opengl_extrusions.predicates import (
-    NonFinitePointError, orient2d, _scaled_ints, _sign,
-)
-
 __all__ = [
-    'PSLG', 'DegenerateContourError',
-    'clean_contour', 'clean_contour_indexed', 'build_pslg', 'winding_at',
-    'polygon_area', 'polygon_orientation', 'point_in_polygon',
-    'segments_cross', 'segment_intersection',
+    'PSLG',
+    'DegenerateContourError',
+    'clean_contour',
+    'clean_contour_indexed',
+    'build_pslg',
+    'winding_at',
+    'polygon_area',
+    'polygon_orientation',
+    'point_in_polygon',
+    'segments_cross',
+    'segment_intersection',
 ]
 
 
@@ -87,7 +97,7 @@ class PSLG:
         return len(self.edges)
 
     @property
-    def bounds(self) -> Tuple[np.ndarray, np.ndarray]:
+    def bounds(self) -> tuple[np.ndarray, np.ndarray]:
         """``(minimum, maximum)`` corner of the bounding box, as ``(2,)`` arrays."""
         if len(self.points) == 0:
             zero = np.zeros(2, dtype=np.float64)
@@ -97,12 +107,12 @@ class PSLG:
 
 # -- measurements on a single closed contour ------------------------------
 
+
 def _as_contour(points: Iterable[Point]) -> np.ndarray:
     """Validate and return an ``(N, 2)`` float64 array."""
     pts = np.asarray(points, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2:
-        raise ValueError('a contour must be an (N, 2) array of 2D points, got %r'
-                         % (pts.shape,))
+        raise ValueError('a contour must be an (N, 2) array of 2D points, got %r' % (pts.shape,))
     if len(pts) and not np.isfinite(pts).all():
         raise NonFinitePointError('contour contains a non-finite coordinate')
     return pts
@@ -134,12 +144,12 @@ def polygon_orientation(points: Iterable[Point]) -> int:
     if len(pts) < 3:
         return 0
     x, y = pts[:, 0], pts[:, 1]
-    terms = (x * np.roll(y, -1) - np.roll(x, -1) * y)
+    terms = x * np.roll(y, -1) - np.roll(x, -1) * y
     total = fsum(terms.tolist())
     magnitude = fsum(np.abs(terms).tolist())
     if magnitude == 0.0:
         return 0
-    if abs(total) > 8.0 * 2.0 ** -53 * magnitude:
+    if abs(total) > 8.0 * 2.0**-53 * magnitude:
         return _sign(total)
     scaled = _scaled_ints(pts.ravel().tolist())
     xs, ys = scaled[0::2], scaled[1::2]
@@ -176,8 +186,7 @@ def _on_segment(p: Point, a: Point, b: Point) -> bool:
     """Whether ``p`` lies on the closed segment ``a``--``b``."""
     if orient2d(a, b, p) != 0:
         return False
-    return (min(a[0], b[0]) <= p[0] <= max(a[0], b[0])
-            and min(a[1], b[1]) <= p[1] <= max(a[1], b[1]))
+    return min(a[0], b[0]) <= p[0] <= max(a[0], b[0]) and min(a[1], b[1]) <= p[1] <= max(a[1], b[1])
 
 
 def _strictly_inside_segment(p: Point, a: Point, b: Point) -> bool:
@@ -219,7 +228,7 @@ def segment_intersection(p1: Point, q1: Point, p2: Point, q2: Point):
     rx, ry = x2 - x1, y2 - y1
     sx, sy = x4 - x3, y4 - y3
     denominator = rx * sy - ry * sx
-    if denominator == 0.0:                      # pragma: no cover - excluded by the exact test
+    if denominator == 0.0:  # pragma: no cover - excluded by the exact test
         return None
     t = ((x3 - x1) * sy - (y3 - y1) * sx) / denominator
     return np.array([x1 + t * rx, y1 + t * ry], dtype=np.float64)
@@ -227,8 +236,10 @@ def segment_intersection(p1: Point, q1: Point, p2: Point, q2: Point):
 
 # -- cleaning one contour -------------------------------------------------
 
-def clean_contour(points: Iterable[Point], tolerance: float = 0.0,
-                  remove_collinear: bool = False) -> np.ndarray:
+
+def clean_contour(
+    points: Iterable[Point], tolerance: float = 0.0, remove_collinear: bool = False
+) -> np.ndarray:
     """Drop repeated, coincident and (optionally) redundant points.
 
     Removes consecutive duplicates, closes the ring implicitly by dropping a
@@ -249,8 +260,9 @@ def clean_contour(points: Iterable[Point], tolerance: float = 0.0,
     return kept
 
 
-def clean_contour_indexed(points: Iterable[Point], tolerance: float = 0.0,
-                          remove_collinear: bool = False):
+def clean_contour_indexed(
+    points: Iterable[Point], tolerance: float = 0.0, remove_collinear: bool = False
+):
     """:func:`clean_contour`, also reporting where each survivor came from.
 
     Returns ``(points, indices)``, where ``indices[k]`` is the position in the
@@ -261,8 +273,8 @@ def clean_contour_indexed(points: Iterable[Point], tolerance: float = 0.0,
     if len(pts) == 0:
         raise DegenerateContourError('contour is empty')
 
-    kept: List[np.ndarray] = []
-    where: List[int] = []
+    kept: list[np.ndarray] = []
+    where: list[int] = []
     for i, p in enumerate(pts):
         if kept and _within(p, kept[-1], tolerance):
             continue
@@ -277,9 +289,9 @@ def clean_contour_indexed(points: Iterable[Point], tolerance: float = 0.0,
 
     if len(kept) < 3:
         raise DegenerateContourError(
-            'contour has %d distinct point(s); at least 3 are needed' % len(kept))
-    return (np.asarray(kept, dtype=np.float64),
-            np.asarray(where, dtype=np.int32))
+            'contour has %d distinct point(s); at least 3 are needed' % len(kept)
+        )
+    return (np.asarray(kept, dtype=np.float64), np.asarray(where, dtype=np.int32))
 
 
 def _within(a: np.ndarray, b: np.ndarray, tolerance: float) -> bool:
@@ -289,7 +301,7 @@ def _within(a: np.ndarray, b: np.ndarray, tolerance: float) -> bool:
     return dx * dx + dy * dy <= tolerance * tolerance
 
 
-def _drop_collinear(points: List[np.ndarray], where: List[int]):
+def _drop_collinear(points: list[np.ndarray], where: list[int]):
     """Remove points that add nothing to the outline, repeatedly.
 
     One pass is not enough: removing a point can leave its neighbours collinear
@@ -313,6 +325,7 @@ def _drop_collinear(points: List[np.ndarray], where: List[int]):
 
 # -- merging vertices -----------------------------------------------------
 
+
 class _VertexMerger:
     """Assigns indices to points, giving coincident points the same index.
 
@@ -323,8 +336,8 @@ class _VertexMerger:
 
     def __init__(self, tolerance: float) -> None:
         self.tolerance = float(tolerance)
-        self.points: List[np.ndarray] = []
-        self.source: List[int] = []
+        self.points: list[np.ndarray] = []
+        self.source: list[int] = []
         self._exact: dict = {}
         self._grid: dict = {}
 
@@ -366,11 +379,12 @@ class _VertexMerger:
 
 # -- the graph ------------------------------------------------------------
 
-def _normalise_contours(contours) -> List[np.ndarray]:
+
+def _normalise_contours(contours) -> list[np.ndarray]:
     """Accept one contour or a sequence of them, uniformly."""
     if isinstance(contours, np.ndarray) and contours.ndim == 2:
         return [contours]
-    out: List[np.ndarray] = []
+    out: list[np.ndarray] = []
     for c in contours:
         arr = np.asarray(c, dtype=np.float64)
         if arr.ndim == 2 and arr.shape[1] == 2:
@@ -380,7 +394,7 @@ def _normalise_contours(contours) -> List[np.ndarray]:
     return out
 
 
-def _auto_tolerance(contours: List[np.ndarray]) -> float:
+def _auto_tolerance(contours: list[np.ndarray]) -> float:
     stacked = [c for c in contours if len(c)]
     if not stacked:
         return 0.0
@@ -392,8 +406,7 @@ def _auto_tolerance(contours: List[np.ndarray]) -> float:
     return diagonal * RELATIVE_TOLERANCE
 
 
-def build_pslg(contours, tolerance: float | None = None,
-               remove_collinear: bool = False) -> PSLG:
+def build_pslg(contours, tolerance: float | None = None, remove_collinear: bool = False) -> PSLG:
     """Turn closed contours into a planar straight-line graph.
 
     ``contours`` is one ``(N, 2)`` array or a sequence of them, each a closed
@@ -411,25 +424,29 @@ def build_pslg(contours, tolerance: float | None = None,
     """
     rings = _normalise_contours(contours)
     if not rings:
-        return PSLG(np.zeros((0, 2), dtype=np.float64),
-                    np.zeros((0, 2), dtype=np.int32),
-                    np.zeros(0, dtype=np.int32),
-                    np.zeros(0, dtype=np.int32))
+        return PSLG(
+            np.zeros((0, 2), dtype=np.float64),
+            np.zeros((0, 2), dtype=np.int32),
+            np.zeros(0, dtype=np.int32),
+            np.zeros(0, dtype=np.int32),
+        )
     if tolerance is None:
         tolerance = _auto_tolerance(rings)
 
     merger = _VertexMerger(tolerance)
-    directed: List[Tuple[int, int]] = []
+    directed: list[tuple[int, int]] = []
     offset = 0
     for ring in rings:
         try:
-            cleaned, where = clean_contour_indexed(ring, tolerance=tolerance,
-                                                   remove_collinear=remove_collinear)
+            cleaned, where = clean_contour_indexed(
+                ring, tolerance=tolerance, remove_collinear=remove_collinear
+            )
         except DegenerateContourError:
             offset += len(ring)
             continue
-        indices = [merger.add(p[0], p[1], int(offset + w))
-                   for p, w in zip(cleaned, where, strict=True)]
+        indices = [
+            merger.add(p[0], p[1], int(offset + w)) for p, w in zip(cleaned, where, strict=True)
+        ]
         offset += len(ring)
         for k in range(len(indices)):
             a, b = indices[k], indices[(k + 1) % len(indices)]
@@ -440,8 +457,9 @@ def build_pslg(contours, tolerance: float | None = None,
     return _collapse(directed, merger.array(), merger.source_array())
 
 
-def _split_at_intersections(directed: List[Tuple[int, int]],
-                            merger: _VertexMerger) -> List[Tuple[int, int]]:
+def _split_at_intersections(
+    directed: list[tuple[int, int]], merger: _VertexMerger
+) -> list[tuple[int, int]]:
     """Subdivide segments until no two of them meet anywhere but at endpoints."""
     for _ in range(MAX_SPLIT_PASSES):
         splits = _find_splits(directed, merger)
@@ -451,8 +469,7 @@ def _split_at_intersections(directed: List[Tuple[int, int]],
     return directed
 
 
-def _find_splits(directed: List[Tuple[int, int]],
-                 merger: _VertexMerger) -> dict:
+def _find_splits(directed: list[tuple[int, int]], merger: _VertexMerger) -> dict:
     """Locate every point at which some segment has to be subdivided.
 
     Candidate pairs come from a sweep over x: segments are visited in order of
@@ -461,24 +478,26 @@ def _find_splits(directed: List[Tuple[int, int]],
     number of pairs that actually overlap.
     """
     points = merger.points
-    order = sorted(range(len(directed)),
-                   key=lambda s: min(points[directed[s][0]][0], points[directed[s][1]][0]))
+    order = sorted(
+        range(len(directed)),
+        key=lambda s: min(points[directed[s][0]][0], points[directed[s][1]][0]),
+    )
     splits: dict = {}
-    active: List[int] = []
+    active: list[int] = []
     for s in order:
         a, b = directed[s]
         pa, pb = points[a], points[b]
         left = min(pa[0], pb[0])
-        active = [t for t in active
-                  if max(points[directed[t][0]][0], points[directed[t][1]][0]) >= left]
+        active = [
+            t for t in active if max(points[directed[t][0]][0], points[directed[t][1]][0]) >= left
+        ]
         for t in active:
             _split_pair(s, t, directed, points, merger, splits)
         active.append(s)
     return splits
 
 
-def _split_pair(s: int, t: int, directed, points, merger: _VertexMerger,
-                splits: dict) -> None:
+def _split_pair(s: int, t: int, directed, points, merger: _VertexMerger, splits: dict) -> None:
     """Record the subdivisions two segments impose on each other."""
     a, b = directed[s]
     c, d = directed[t]
@@ -486,8 +505,7 @@ def _split_pair(s: int, t: int, directed, points, merger: _VertexMerger,
     # segment's *far* endpoint may still lie inside its neighbour, so the tests
     # below run either way.
     pa, pb, pc, pd = points[a], points[b], points[c], points[d]
-    if (min(pa[1], pb[1]) > max(pc[1], pd[1])
-            or min(pc[1], pd[1]) > max(pa[1], pb[1])):
+    if min(pa[1], pb[1]) > max(pc[1], pd[1]) or min(pc[1], pd[1]) > max(pa[1], pb[1]):
         return
     for index, p in ((c, pc), (d, pd)):
         if index not in (a, b) and _strictly_inside_segment(p, pa, pb):
@@ -504,11 +522,12 @@ def _split_pair(s: int, t: int, directed, points, merger: _VertexMerger,
             splits.setdefault(t, set()).add(index)
 
 
-def _apply_splits(directed: List[Tuple[int, int]], splits: dict,
-                  merger: _VertexMerger) -> List[Tuple[int, int]]:
+def _apply_splits(
+    directed: list[tuple[int, int]], splits: dict, merger: _VertexMerger
+) -> list[tuple[int, int]]:
     """Replace each split segment by the chain of pieces it becomes."""
     points = merger.points
-    out: List[Tuple[int, int]] = []
+    out: list[tuple[int, int]] = []
     for s, (a, b) in enumerate(directed):
         extra = splits.get(s)
         if not extra:
@@ -527,8 +546,7 @@ def _apply_splits(directed: List[Tuple[int, int]], splits: dict,
     return out
 
 
-def _collapse(directed: List[Tuple[int, int]], points: np.ndarray,
-              source: np.ndarray) -> PSLG:
+def _collapse(directed: list[tuple[int, int]], points: np.ndarray, source: np.ndarray) -> PSLG:
     """Merge coincident edges, summing their winding contributions."""
     totals: dict = {}
     for a, b in directed:
@@ -540,8 +558,7 @@ def _collapse(directed: List[Tuple[int, int]], points: np.ndarray,
     kept = [(k, v) for k, v in totals.items() if v != 0]
     kept.sort()
     if not kept:
-        return PSLG(points, np.zeros((0, 2), dtype=np.int32),
-                    np.zeros(0, dtype=np.int32), source)
+        return PSLG(points, np.zeros((0, 2), dtype=np.int32), np.zeros(0, dtype=np.int32), source)
     edges = np.array([k for k, _ in kept], dtype=np.int32)
     winding = np.array([v for _, v in kept], dtype=np.int32)
     return PSLG(points, edges, winding, source)

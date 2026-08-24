@@ -35,9 +35,10 @@ climb, the further apart they get.
 Contours for these are read in the **r-z plane**: the contour's x is distance
 out from the axis, added to the sweep radius, and its y is height along z.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -45,35 +46,45 @@ from opengl_extrusions.contours import circle, contour_normals
 from opengl_extrusions.curves import helix
 from opengl_extrusions.mesh import Mesh, Primitive
 from opengl_extrusions.sweep import Station, build_from_stations, sweep
-from opengl_extrusions.types import Vector
 from opengl_extrusions.tessellate import tessellate
+from opengl_extrusions.types import Vector
 
 __all__ = [
-    'extrude', 'lathe', 'spiral', 'screw', 'helicoid', 'toroid', 'polycylinder',
+    'extrude',
+    'lathe',
+    'spiral',
+    'screw',
+    'helicoid',
+    'toroid',
+    'polycylinder',
     'polycone',
 ]
 
 _TINY = 1e-12
 
 
-def extrude(contour, path, *,
-            contour_normals=None,
-            up: Vector = (0.0, 1.0, 0.0),
-            frames: str = 'up',
-            join: str = 'angle',
-            miter_limit: float = 4.0,
-            round_segments: int = 4,
-            caps: Any = True,
-            closed_contour: bool = True,
-            closed_path: bool = False,
-            normals: str = 'edge',
-            texture: Optional[str] = 'normalized',
-            scale=None,
-            twist=None,
-            color=None,
-            cap_min_angle: Optional[float] = None,
-            cap_max_area: Optional[float] = None,
-            name: Optional[str] = None) -> Mesh:
+def extrude(
+    contour,
+    path,
+    *,
+    contour_normals=None,
+    up: Vector = (0.0, 1.0, 0.0),
+    frames: str = 'up',
+    join: str = 'angle',
+    miter_limit: float = 4.0,
+    round_segments: int = 4,
+    caps: Any = True,
+    closed_contour: bool = True,
+    closed_path: bool = False,
+    normals: str = 'edge',
+    texture: str | None = 'normalized',
+    scale=None,
+    twist=None,
+    color=None,
+    cap_min_angle: float | None = None,
+    cap_max_area: float | None = None,
+    name: str | None = None,
+) -> Mesh:
     """Sweep a 2D contour along a 3D path.
 
     :param contour: an ``(N, 2)`` array of points, or a list of them for a shape
@@ -135,28 +146,57 @@ def extrude(contour, path, *,
         >>> mesh.primitives[0].positions.dtype
         dtype('float32')
     """
-    parameters: Dict[str, Any] = {
-        'join': join, 'normals': normals, 'texture': texture,
-        'caps': caps, 'closed_contour': closed_contour, 'closed_path': closed_path,
+    parameters: dict[str, Any] = {
+        'join': join,
+        'normals': normals,
+        'texture': texture,
+        'caps': caps,
+        'closed_contour': closed_contour,
+        'closed_path': closed_path,
         'frames': frames,
     }
-    return sweep(contour, path,
-                 contour_normals_2d=contour_normals, up=up, frames=frames,
-                 join=join, miter_limit=miter_limit, round_segments=round_segments,
-                 caps=caps, closed_contour=closed_contour, closed_path=closed_path,
-                 normals=normals, texture=texture, scale=scale, twist=twist,
-                 color=color, cap_min_angle=cap_min_angle, cap_max_area=cap_max_area,
-                 name=name,
-                 extras={'generator': 'extrude', 'parameters': parameters})
+    return sweep(
+        contour,
+        path,
+        contour_normals_2d=contour_normals,
+        up=up,
+        frames=frames,
+        join=join,
+        miter_limit=miter_limit,
+        round_segments=round_segments,
+        caps=caps,
+        closed_contour=closed_contour,
+        closed_path=closed_path,
+        normals=normals,
+        texture=texture,
+        scale=scale,
+        twist=twist,
+        color=color,
+        cap_min_angle=cap_min_angle,
+        cap_max_area=cap_max_area,
+        name=name,
+        extras={'generator': 'extrude', 'parameters': parameters},
+    )
 
 
-def lathe(contour, *, start_radius: float = 1.0, delta_radius: float = 0.0,
-          start_z: float = 0.0, delta_z: float = 0.0,
-          start_angle: float = 0.0, sweep_angle: float = 2 * np.pi,
-          sides: int = 20, contour_normals_2d=None,
-          closed_contour: bool = True, caps: Any = 'auto',
-          normals: str = 'edge', texture: Optional[str] = 'normalized',
-          mitre: bool = True, name: Optional[str] = None) -> Mesh:
+def lathe(
+    contour,
+    *,
+    start_radius: float = 1.0,
+    delta_radius: float = 0.0,
+    start_z: float = 0.0,
+    delta_z: float = 0.0,
+    start_angle: float = 0.0,
+    sweep_angle: float = 2 * np.pi,
+    sides: int = 20,
+    contour_normals_2d=None,
+    closed_contour: bool = True,
+    caps: Any = 'auto',
+    normals: str = 'edge',
+    texture: str | None = 'normalized',
+    mitre: bool = True,
+    name: str | None = None,
+) -> Mesh:
     """Sweep a contour around the z axis, keeping its plane radial.
 
     :param contour: ``(N, 2)`` points in the r-z plane: x is distance out from
@@ -187,19 +227,44 @@ def lathe(contour, *, start_radius: float = 1.0, delta_radius: float = 0.0,
         >>> mesh.triangle_count > 0
         True
     """
-    return _rotational(contour, contour_normals_2d, start_radius, delta_radius,
-                       start_z, delta_z, start_angle, sweep_angle, sides,
-                       closed_contour, caps, normals, texture, mitre, name,
-                       'lathe')
+    return _rotational(
+        contour,
+        contour_normals_2d,
+        start_radius,
+        delta_radius,
+        start_z,
+        delta_z,
+        start_angle,
+        sweep_angle,
+        sides,
+        closed_contour,
+        caps,
+        normals,
+        texture,
+        mitre,
+        name,
+        'lathe',
+    )
 
 
-def spiral(contour, *, start_radius: float = 1.0, delta_radius: float = 0.0,
-           start_z: float = 0.0, delta_z: float = 0.0,
-           start_angle: float = 0.0, sweep_angle: float = 2 * np.pi,
-           sides: int = 20, contour_normals_2d=None,
-           closed_contour: bool = True, caps: Any = 'auto',
-           normals: str = 'edge', texture: Optional[str] = 'normalized',
-           join: str = 'angle', name: Optional[str] = None) -> Mesh:
+def spiral(
+    contour,
+    *,
+    start_radius: float = 1.0,
+    delta_radius: float = 0.0,
+    start_z: float = 0.0,
+    delta_z: float = 0.0,
+    start_angle: float = 0.0,
+    sweep_angle: float = 2 * np.pi,
+    sides: int = 20,
+    contour_normals_2d=None,
+    closed_contour: bool = True,
+    caps: Any = 'auto',
+    normals: str = 'edge',
+    texture: str | None = 'normalized',
+    join: str = 'angle',
+    name: str | None = None,
+) -> Mesh:
     """Sweep a contour along a helix, keeping its plane square to the path.
 
     The parameters are :func:`lathe`'s. The difference is that the contour tilts
@@ -215,26 +280,45 @@ def spiral(contour, *, start_radius: float = 1.0, delta_radius: float = 0.0,
         >>> mesh.triangle_count > 0
         True
     """
-    path = helix(start_radius=start_radius, delta_radius=delta_radius,
-                 start_z=start_z, delta_z=delta_z, start_angle=start_angle,
-                 sweep_angle=sweep_angle, sides=sides)
+    path = helix(
+        start_radius=start_radius,
+        delta_radius=delta_radius,
+        start_z=start_z,
+        delta_z=delta_z,
+        start_angle=start_angle,
+        sweep_angle=sweep_angle,
+        sides=sides,
+    )
     wants_caps = _cap_choice(caps, sweep_angle, delta_radius, delta_z)
     # A frame travelling anticlockwise about z with its up along +z has its own x
     # pointing *inward*. The r-z contour convention says x is outward, so the
     # contour is mirrored going in and the finished surface turned back the right
     # way out -- which leaves the contour meaning what the docstring says it means.
     mirrored, mirrored_normals = _mirror_x(contour, contour_normals_2d)
-    return sweep(mirrored, path, contour_normals_2d=mirrored_normals,
-                 up=(0.0, 0.0, 1.0), join=join, caps=wants_caps,
-                 closed_contour=closed_contour, normals=normals, texture=texture,
-                 name=name,
-                 extras={'generator': 'spiral',
-                         'parameters': {'start_radius': start_radius,
-                                        'delta_radius': delta_radius,
-                                        'start_z': start_z, 'delta_z': delta_z,
-                                        'start_angle': start_angle,
-                                        'sweep_angle': sweep_angle,
-                                        'sides': sides}}).reversed()
+    return sweep(
+        mirrored,
+        path,
+        contour_normals_2d=mirrored_normals,
+        up=(0.0, 0.0, 1.0),
+        join=join,
+        caps=wants_caps,
+        closed_contour=closed_contour,
+        normals=normals,
+        texture=texture,
+        name=name,
+        extras={
+            'generator': 'spiral',
+            'parameters': {
+                'start_radius': start_radius,
+                'delta_radius': delta_radius,
+                'start_z': start_z,
+                'delta_z': delta_z,
+                'start_angle': start_angle,
+                'sweep_angle': sweep_angle,
+                'sides': sides,
+            },
+        },
+    ).reversed()
 
 
 def _mirror_x(contour, normals):
@@ -249,11 +333,20 @@ def _mirror_x(contour, normals):
     return ring, flipped
 
 
-def screw(contour, *, start_z: float = -1.0, end_z: float = 1.0,
-          twist: float = np.pi, steps: Optional[int] = None,
-          contour_normals_2d=None, closed_contour: bool = True,
-          caps: Any = True, normals: str = 'edge',
-          texture: Optional[str] = 'normalized', name: Optional[str] = None) -> Mesh:
+def screw(
+    contour,
+    *,
+    start_z: float = -1.0,
+    end_z: float = 1.0,
+    twist: float = np.pi,
+    steps: int | None = None,
+    contour_normals_2d=None,
+    closed_contour: bool = True,
+    caps: Any = True,
+    normals: str = 'edge',
+    texture: str | None = 'normalized',
+    name: str | None = None,
+) -> Mesh:
     """Extrude a contour along the z axis while turning it.
 
     :param start_z: where the extrusion begins.
@@ -276,17 +369,25 @@ def screw(contour, *, start_z: float = -1.0, end_z: float = 1.0,
     heights = np.linspace(float(start_z), float(end_z), int(steps))
     path = np.column_stack([np.zeros(len(heights)), np.zeros(len(heights)), heights])
     angles = np.linspace(0.0, float(twist), len(heights))
-    return sweep(contour, path, contour_normals_2d=contour_normals_2d,
-                 up=(0.0, 1.0, 0.0), twist=angles, caps=caps,
-                 closed_contour=closed_contour, normals=normals, texture=texture,
-                 name=name,
-                 extras={'generator': 'screw',
-                         'parameters': {'start_z': start_z, 'end_z': end_z,
-                                        'twist': twist, 'steps': int(steps)}})
+    return sweep(
+        contour,
+        path,
+        contour_normals_2d=contour_normals_2d,
+        up=(0.0, 1.0, 0.0),
+        twist=angles,
+        caps=caps,
+        closed_contour=closed_contour,
+        normals=normals,
+        texture=texture,
+        name=name,
+        extras={
+            'generator': 'screw',
+            'parameters': {'start_z': start_z, 'end_z': end_z, 'twist': twist, 'steps': int(steps)},
+        },
+    )
 
 
-def helicoid(section_radius: float = 0.25, *, section_sides: int = 12,
-             **kwargs) -> Mesh:
+def helicoid(section_radius: float = 0.25, *, section_sides: int = 12, **kwargs) -> Mesh:
     """A :func:`lathe` of a circle: a round-sectioned sheared coil.
 
     ``section_radius`` and ``section_sides`` describe the circular contour; every
@@ -296,8 +397,7 @@ def helicoid(section_radius: float = 0.25, *, section_sides: int = 12,
     return lathe(circle(section_radius, section_sides), **kwargs)
 
 
-def toroid(section_radius: float = 0.25, *, section_sides: int = 12,
-           **kwargs) -> Mesh:
+def toroid(section_radius: float = 0.25, *, section_sides: int = 12, **kwargs) -> Mesh:
     """A :func:`spiral` of a circle: a round-sectioned coil, or a torus.
 
     With the default full turn and no rise, this is a torus. With a rise per turn
@@ -329,8 +429,7 @@ def polycone(path, radii, *, sides: int = 20, **kwargs) -> Mesh:
     kwargs.setdefault('name', 'polycone')
     values = np.asarray(radii, dtype=np.float64)
     if values.ndim != 1:
-        raise ValueError('radii must be one value per path point, got %r'
-                         % (values.shape,))
+        raise ValueError('radii must be one value per path point, got %r' % (values.shape,))
     mesh = extrude(circle(1.0, sides), path, scale=values, **kwargs)
     for p in mesh.primitives:
         p.extras['generator'] = 'polycone'
@@ -339,8 +438,8 @@ def polycone(path, radii, *, sides: int = 20, **kwargs) -> Mesh:
 
 # -- the rotational kernel ------------------------------------------------
 
-def _closes(sweep_angle: float, delta_radius: float = 0.0,
-            delta_z: float = 0.0) -> bool:
+
+def _closes(sweep_angle: float, delta_radius: float = 0.0, delta_z: float = 0.0) -> bool:
     """Whether the sweep ends exactly where it began.
 
     A whole number of turns is not enough on its own: a sweep that also rises or
@@ -352,17 +451,33 @@ def _closes(sweep_angle: float, delta_radius: float = 0.0,
     return bool(whole and abs(delta_radius) <= _TINY and abs(delta_z) <= _TINY)
 
 
-def _cap_choice(caps: Any, sweep_angle: float, delta_radius: float = 0.0,
-                delta_z: float = 0.0) -> Any:
+def _cap_choice(
+    caps: Any, sweep_angle: float, delta_radius: float = 0.0, delta_z: float = 0.0
+) -> Any:
     """``'auto'`` means cap unless the sweep comes back to where it started."""
     if caps != 'auto':
         return caps
     return not _closes(sweep_angle, delta_radius, delta_z)
 
 
-def _rotational(contour, supplied_normals, start_radius, delta_radius, start_z,
-                delta_z, start_angle, sweep_angle, sides, closed_contour, caps,
-                normals, texture, mitre, name, generator) -> Mesh:
+def _rotational(
+    contour,
+    supplied_normals,
+    start_radius,
+    delta_radius,
+    start_z,
+    delta_z,
+    start_angle,
+    sweep_angle,
+    sides,
+    closed_contour,
+    caps,
+    normals,
+    texture,
+    mitre,
+    name,
+    generator,
+) -> Mesh:
     """Place a radial ring at each step around the axis, and strip them together."""
     ring = np.asarray(contour, dtype=np.float64)
     if ring.ndim != 2 or ring.shape[1] != 2:
@@ -373,9 +488,11 @@ def _rotational(contour, supplied_normals, start_radius, delta_radius, start_z,
         raise ValueError('contour contains a non-finite coordinate')
     if sides < 1:
         raise ValueError('sides must be at least 1, got %r' % (sides,))
-    ring_normals = (contour_normals(ring, closed=closed_contour)
-                    if supplied_normals is None
-                    else np.asarray(supplied_normals, dtype=np.float64))
+    ring_normals = (
+        contour_normals(ring, closed=closed_contour)
+        if supplied_normals is None
+        else np.asarray(supplied_normals, dtype=np.float64)
+    )
 
     turns = float(sweep_angle) / (2 * np.pi)
     steps = max(int(round(abs(turns) * sides)), 1)
@@ -387,7 +504,7 @@ def _rotational(contour, supplied_normals, start_radius, delta_radius, start_z,
     stretch = 1.0 / max(np.cos(abs(step_angle) * 0.5), 1e-6) if mitre else 1.0
 
     closes = _closes(sweep_angle, delta_radius, delta_z)
-    stations: List[Station] = []
+    stations: list[Station] = []
     for index, theta in enumerate(angles):
         if closes and index == len(angles) - 1:
             break
@@ -402,37 +519,70 @@ def _rotational(contour, supplied_normals, start_radius, delta_radius, start_z,
         points = origin + (ring[:, 0:1] * reach) * outward + ring[:, 1:2] * upward
         surface = ring_normals[:, 0:1] * outward + ring_normals[:, 1:2] * upward
         lengths = np.linalg.norm(surface, axis=1, keepdims=True)
-        surface = np.divide(surface, lengths, out=np.zeros_like(surface),
-                            where=lengths > _TINY)
-        stations.append(Station(points, surface,
-                                abs(radius * (theta - start_angle))))
+        surface = np.divide(surface, lengths, out=np.zeros_like(surface), where=lengths > _TINY)
+        stations.append(Station(points, surface, abs(radius * (theta - start_angle))))
 
     if closes:
-        stations.append(Station(stations[0].points.copy(), stations[0].normals.copy(),
-                                abs(start_radius * float(sweep_angle))))
-    primitive = build_from_stations(stations, ring, closed_contour, False,
-                                    normals, texture,
-                                    stations[-1].arc_length if stations else 0.0,
-                                    reverse_winding=True)
+        stations.append(
+            Station(
+                stations[0].points.copy(),
+                stations[0].normals.copy(),
+                abs(start_radius * float(sweep_angle)),
+            )
+        )
+    primitive = build_from_stations(
+        stations,
+        ring,
+        closed_contour,
+        False,
+        normals,
+        texture,
+        stations[-1].arc_length if stations else 0.0,
+        reverse_winding=True,
+    )
     mesh = Mesh([primitive], name=name)
 
     if _cap_choice(caps, sweep_angle, delta_radius, delta_z) and closed_contour:
-        mesh = mesh + _rotational_caps(ring, stations, angles, start_angle,
-                                       start_radius, delta_radius, start_z,
-                                       delta_z, stretch, texture)
+        mesh = mesh + _rotational_caps(
+            ring,
+            stations,
+            angles,
+            start_angle,
+            start_radius,
+            delta_radius,
+            start_z,
+            delta_z,
+            stretch,
+            texture,
+        )
         mesh = mesh.merged()
-    parameters: Dict[str, Any] = {
-        'start_radius': start_radius, 'delta_radius': delta_radius,
-        'start_z': start_z, 'delta_z': delta_z, 'start_angle': start_angle,
-        'sweep_angle': sweep_angle, 'sides': sides, 'mitre': mitre,
+    parameters: dict[str, Any] = {
+        'start_radius': start_radius,
+        'delta_radius': delta_radius,
+        'start_z': start_z,
+        'delta_z': delta_z,
+        'start_angle': start_angle,
+        'sweep_angle': sweep_angle,
+        'sides': sides,
+        'mitre': mitre,
     }
     for p in mesh.primitives:
         p.extras.update({'generator': generator, 'parameters': parameters})
     return mesh
 
 
-def _rotational_caps(ring, stations, angles, start_angle, start_radius,
-                     delta_radius, start_z, delta_z, stretch, texture) -> Mesh:
+def _rotational_caps(
+    ring,
+    stations,
+    angles,
+    start_angle,
+    start_radius,
+    delta_radius,
+    start_z,
+    delta_z,
+    stretch,
+    texture,
+) -> Mesh:
     """Flat faces closing the two cut ends of a partial sweep."""
     result = tessellate([ring], winding='odd')
     if len(result.triangles) == 0:
@@ -446,8 +596,7 @@ def _rotational_caps(ring, stations, angles, start_angle, start_radius,
         outward = np.array([np.cos(theta), np.sin(theta), 0.0])
         upward = np.array([0.0, 0.0, 1.0])
         origin = outward * radius + upward * height
-        positions = (origin + result.points[:, 0:1] * outward
-                     + result.points[:, 1:2] * upward)
+        positions = origin + result.points[:, 0:1] * outward + result.points[:, 1:2] * upward
         # The sweep travels anticlockwise, so the starting face looks backward
         # along the turn and the ending face looks forward.
         facing = np.cross(upward, outward)
@@ -455,12 +604,16 @@ def _rotational_caps(ring, stations, angles, start_angle, start_radius,
         # The (outward, up) basis is left-handed against the sweep's travel, so a
         # counter-clockwise triangle in it faces backward and is wound the other way.
         triangles = result.triangles[:, ::-1] if at_end else result.triangles
-        attributes = {'POSITION': positions,
-                      'NORMAL': np.tile(facing, (len(positions), 1))}
+        attributes = {'POSITION': positions, 'NORMAL': np.tile(facing, (len(positions), 1))}
         if texture is not None:
             span = np.ptp(result.points, axis=0)
             span[span <= _TINY] = 1.0
             attributes['TEXCOORD_0'] = (result.points - result.points.min(axis=0)) / span
-        primitives.append(Primitive(attributes, triangles.ravel().astype(np.uint32),
-                                    extras={'cap': 'end' if at_end else 'begin'}))
+        primitives.append(
+            Primitive(
+                attributes,
+                triangles.ravel().astype(np.uint32),
+                extras={'cap': 'end' if at_end else 'begin'},
+            )
+        )
     return Mesh(primitives)

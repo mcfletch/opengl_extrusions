@@ -4,12 +4,20 @@ Every path here is one a caller can reach. What is *not* covered deliberately is
 the handful of defensive branches that need a corrupted mesh to reach, each of
 which carries a ``pragma: no cover`` and a note saying so.
 """
+
 import numpy as np
 import pytest
 
 from opengl_extrusions import (
-    Mesh, Primitive, Triangulation, build_pslg, circle, extrude, lathe,
-    polycylinder, tessellate,
+    Mesh,
+    Primitive,
+    Triangulation,
+    build_pslg,
+    circle,
+    extrude,
+    lathe,
+    polycylinder,
+    tessellate,
 )
 from opengl_extrusions.cdt import TriangulationError, convex_hull
 from opengl_extrusions.contours import contour_normals, rounded_rectangle
@@ -18,7 +26,10 @@ from opengl_extrusions.frames import clean_path, path_frames
 from opengl_extrusions.mesh import MeshError
 from opengl_extrusions.planar import point_in_polygon, winding_at
 from opengl_extrusions.predicates import (
-    NonFinitePointError, incircle, orient2d, orient2d_many,
+    NonFinitePointError,
+    incircle,
+    orient2d,
+    orient2d_many,
 )
 from opengl_extrusions.tangents import to_collider
 from opengl_extrusions.weld import boundary_edges, signed_volume, surface_area
@@ -41,7 +52,7 @@ class TestPredicateEdges:
 
     def test_many_points_includes_the_hard_cases(self):
         """A batch containing a point the float filter cannot settle."""
-        ulp = 2.0 ** -53
+        ulp = 2.0**-53
         points = np.array([(0.5 + i * ulp, 0.5) for i in range(-3, 4)])
         signs = orient2d_many((12.0, 12.0), (24.0, 24.0), points)
         assert set(signs) <= {-1, 0, 1}
@@ -74,8 +85,7 @@ class TestTriangulationEdges:
 
     def test_a_constraint_through_a_vertex_is_split_there(self):
         """Three collinear vertices: the middle one is on the constraint."""
-        points = np.array([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (1.0, 1.0),
-                           (1.0, -1.0)])
+        points = np.array([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (1.0, 1.0), (1.0, -1.0)])
         t = Triangulation(points)
         t.insert_constraint(0, 2)
         assert t.has_edge(0, 1) and t.has_edge(1, 2)
@@ -154,6 +164,7 @@ class TestPlanarEdges:
 
     def test_a_very_thin_polygon_still_has_an_orientation(self):
         from opengl_extrusions import polygon_orientation
+
         thin = [(0.0, 0.0), (1.0, 0.0), (1.0, 1e-300)]
         assert polygon_orientation(thin) == 1
 
@@ -172,6 +183,7 @@ class TestContourAndFrameEdges:
 
     def test_a_star_needs_positive_radii(self):
         from opengl_extrusions import star
+
         with pytest.raises(ValueError):
             star(5, -1.0, 0.5)
         with pytest.raises(ValueError):
@@ -179,6 +191,7 @@ class TestContourAndFrameEdges:
 
     def test_a_rectangle_needs_a_positive_size(self):
         from opengl_extrusions import rectangle
+
         with pytest.raises(ValueError):
             rectangle(0.0, 1.0)
 
@@ -232,8 +245,9 @@ class TestMeshEdges:
         assert p.triangles.shape == (2, 3)
 
     def test_an_index_count_that_is_not_whole_triangles_is_refused(self):
-        p = Primitive({'POSITION': np.zeros((4, 3), 'f')},
-                      indices=np.array([0, 1, 2, 3], np.uint32))
+        p = Primitive(
+            {'POSITION': np.zeros((4, 3), 'f')}, indices=np.array([0, 1, 2, 3], np.uint32)
+        )
         with pytest.raises(MeshError):
             p.validate()
 
@@ -243,11 +257,13 @@ class TestMeshEdges:
         assert surface_area(np.zeros((0, 3)), np.zeros((0, 3), np.uint32)) == 0.0
 
     def test_a_transformed_tangent_keeps_its_handedness(self):
-        p = Primitive({
-            'POSITION': np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0)], 'f'),
-            'NORMAL': np.array([(0, 0, 1)] * 3, 'f'),
-            'TANGENT': np.array([(1, 0, 0, -1)] * 3, 'f'),
-        })
+        p = Primitive(
+            {
+                'POSITION': np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0)], 'f'),
+                'NORMAL': np.array([(0, 0, 1)] * 3, 'f'),
+                'TANGENT': np.array([(1, 0, 0, -1)] * 3, 'f'),
+            }
+        )
         moved = p.transformed(np.diag([2.0, 1.0, 1.0, 1.0]))
         assert np.allclose(moved.tangents[:, 3], -1)
 
@@ -256,9 +272,11 @@ class TestMeshEdges:
         assert blob[:4] == b'glTF'
 
     def test_extras_survive_serialisation(self):
-        p = Primitive({'POSITION': np.zeros((3, 3), 'f')},
-                      indices=np.array([0, 1, 2], np.uint32),
-                      extras={'count': np.int64(3), 'where': np.array([1.0, 2.0])})
+        p = Primitive(
+            {'POSITION': np.zeros((3, 3), 'f')},
+            indices=np.array([0, 1, 2], np.uint32),
+            extras={'count': np.int64(3), 'where': np.array([1.0, 2.0])},
+        )
         doc = Mesh([p]).to_gltf()
         assert doc['meshes'][0]['primitives'][0]['extras']['count'] == 3
 
@@ -276,18 +294,15 @@ class TestGeneratorEdges:
         section = np.array([(0.0, 0.0), (0.4, 0.0), (0.4, 0.4), (0.0, 0.4)])
         normals = np.array([(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)])
         mesh = lathe(section, contour_normals_2d=normals, sides=16, caps=False)
-        assert np.allclose(np.linalg.norm(mesh.primitives[0].normals, axis=1),
-                           1.0, atol=1e-6)
+        assert np.allclose(np.linalg.norm(mesh.primitives[0].normals, axis=1), 1.0, atol=1e-6)
 
     def test_a_sweep_of_several_contours_gives_several_primitives(self):
-        mesh = extrude([circle(2.0, 8), circle(1.0, 8)[::-1]],
-                       [(0, 0, 0), (0, 0, 1)], caps=False)
+        mesh = extrude([circle(2.0, 8), circle(1.0, 8)[::-1]], [(0, 0, 0), (0, 0, 1)], caps=False)
         assert mesh.primitives[0].vertex_count > 0
 
     def test_mismatched_contour_normals_are_refused(self):
         with pytest.raises(ValueError):
-            extrude(circle(1.0, 8), [(0, 0, 0), (0, 0, 1)],
-                    contour_normals=np.zeros((4, 2)))
+            extrude(circle(1.0, 8), [(0, 0, 0), (0, 0, 1)], contour_normals=np.zeros((4, 2)))
 
     def test_a_bad_caps_value_is_refused(self):
         with pytest.raises(ValueError):

@@ -5,13 +5,16 @@ three points are collinear when they are not builds inconsistent topology and
 never recovers. Every "hard" case below is one where a plain floating-point
 evaluation of the determinant gives the wrong answer.
 """
+
 import numpy as np
 import pytest
 
 from opengl_extrusions.predicates import (
-    orient2d, incircle, exact_orient2d, exact_incircle,
+    exact_incircle,
+    exact_orient2d,
+    incircle,
+    orient2d,
 )
-
 
 # A point a few ULPs from a long baseline. The naive determinant reports these
 # collinear; they are not.
@@ -54,13 +57,13 @@ class TestOrient2D:
     @pytest.mark.parametrize('i', range(-4, 5))
     @pytest.mark.parametrize('j', range(-4, 5))
     def test_pinwheel_neighbourhood_matches_exact_arithmetic(self, i, j):
-        ulp = 2.0 ** -53
+        ulp = 2.0**-53
         a = (0.5 + i * ulp, 0.5 + j * ulp)
         b, c = PINWHEEL_BASELINE
         assert orient2d(a, b, c) == exact_orient2d(a, b, c)
 
     def test_swapping_two_points_flips_the_sign(self):
-        ulp = 2.0 ** -53
+        ulp = 2.0**-53
         b, c = PINWHEEL_BASELINE
         for i in range(-6, 7):
             a = (0.5 + i * ulp, 0.5 - i * ulp)
@@ -68,7 +71,7 @@ class TestOrient2D:
             assert orient2d(a, b, c) == -orient2d(a, c, b)
 
     def test_rotating_the_arguments_keeps_the_sign(self):
-        ulp = 2.0 ** -53
+        ulp = 2.0**-53
         b, c = PINWHEEL_BASELINE
         for i in range(-6, 7):
             a = (0.5 + i * ulp, 0.5)

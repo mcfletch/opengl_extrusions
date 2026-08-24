@@ -8,6 +8,7 @@ sent to exact arithmetic is a silent wrong answer waiting to happen.
 These run both paths over the same inputs -- including the degenerate ones the
 filter is supposed to decline -- and require identical results.
 """
+
 import os
 
 import numpy as np
@@ -15,11 +16,14 @@ import pytest
 
 from opengl_extrusions import predicates
 from opengl_extrusions.predicates import (
-    ACCELERATED, exact_incircle, exact_orient2d,
+    ACCELERATED,
+    exact_incircle,
+    exact_orient2d,
 )
 
-native = pytest.importorskip('opengl_extrusions._predicates_native',
-                             reason='the accelerator was not built')
+native = pytest.importorskip(
+    'opengl_extrusions._predicates_native', reason='the accelerator was not built'
+)
 
 # Reloading the module to get the pure path back would leave every other test
 # module holding the previous NonFinitePointError class, so the pure side is
@@ -29,7 +33,7 @@ native = pytest.importorskip('opengl_extrusions._predicates_native',
 
 def hard_triples():
     """Inputs chosen to land on and around the filter's error bound."""
-    ulp = 2.0 ** -53
+    ulp = 2.0**-53
     for i in range(-6, 7):
         for j in range(-6, 7):
             yield ((0.5 + i * ulp, 0.5 + j * ulp), (12.0, 12.0), (24.0, 24.0))
@@ -46,10 +50,12 @@ def hard_triples():
 def hard_quads():
     yield ((0, 0), (1, 0), (0, 1), (0.3, 0.3))
     yield ((0, 0), (1, 0), (1, 1), (0, 1))
-    yield ((956.2322198468241, 295.30985365418593),
-           (-415.2511058259243, 909.087073818528),
-           (-652.7478901423938, -757.0128483150819),
-           (709.565505012478, -705.7506785775456))
+    yield (
+        (956.2322198468241, 295.30985365418593),
+        (-415.2511058259243, 909.087073818528),
+        (-652.7478901423938, -757.0128483150819),
+        (709.565505012478, -705.7506785775456),
+    )
     k = 1e7
     yield ((k, k), (k + 1, k), (k + 1, k + 1), (k, k + 1))
     rng = np.random.default_rng(23)
@@ -75,8 +81,10 @@ class TestAgreement:
 class TestTheContract:
     def test_the_filter_declines_rather_than_guesses(self):
         """The near-collinear case it must not settle on its own."""
-        assert native.orient2d((0.49999999999999956, 0.5), (12.0, 12.0),
-                               (24.0, 24.0)) == native.UNCERTAIN
+        assert (
+            native.orient2d((0.49999999999999956, 0.5), (12.0, 12.0), (24.0, 24.0))
+            == native.UNCERTAIN
+        )
 
     def test_the_filter_settles_the_easy_cases(self):
         assert native.orient2d((0, 0), (1, 0), (0, 1)) == 1
@@ -90,6 +98,7 @@ class TestTheContract:
 
     def test_a_non_finite_coordinate_is_refused_by_both(self):
         from opengl_extrusions.predicates import NonFinitePointError
+
         with pytest.raises(ValueError):
             native.orient2d((0, 0), (1, 0), (np.nan, 1))
         with pytest.raises(NonFinitePointError):
@@ -126,8 +135,13 @@ class TestTheWholeTessellatorAgrees:
                 environment.pop('OPENGL_EXTRUSIONS_NO_ACCEL', None)
             else:
                 environment['OPENGL_EXTRUSIONS_NO_ACCEL'] = '1'
-            out = subprocess.run([sys.executable, '-c', script], env=environment,
-                                 capture_output=True, text=True, check=True)
+            out = subprocess.run(
+                [sys.executable, '-c', script],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             return json.loads(out.stdout.strip().splitlines()[-1])
 
         fast, slow = run(True), run(False)

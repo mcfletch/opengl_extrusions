@@ -9,8 +9,8 @@ outline and wanted as a mesh.
 from opengl_extrusions import tessellate
 
 result = tessellate([outer, hole], winding='odd')
-result.points        # (V, 2) float64
-result.triangles     # (T, 3) int32, counter-clockwise
+result.points  # (V, 2) float64
+result.triangles  # (T, 3) int32, counter-clockwise
 result.source_index  # (V,) where each vertex came from in the input, or -1
 ```
 

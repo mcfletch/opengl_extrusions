@@ -5,6 +5,7 @@ never sees these states -- the point is that if a change to the triangulator eve
 produced one, the check would name it rather than letting a later operation fail
 somewhere unrelated.
 """
+
 import numpy as np
 import pytest
 
@@ -14,8 +15,7 @@ from opengl_extrusions.cdt import TriangulationError
 
 @pytest.fixture
 def mesh():
-    return Triangulation(np.array([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0),
-                                   (2.0, 2.0)]))
+    return Triangulation(np.array([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (2.0, 2.0)]))
 
 
 def test_a_healthy_mesh_passes(mesh):

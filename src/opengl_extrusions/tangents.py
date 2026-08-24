@@ -5,9 +5,10 @@ tangents; a scene that draws the shape at a distance needs coarser copies; a
 physics engine needs the shape as a solid rather than as a surface. Each of these
 is cheap once the geometry is arrays, and awkward once it is triangles on a GPU.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
@@ -18,8 +19,9 @@ __all__ = ['generate_tangents', 'with_tangents', 'levels_of_detail', 'to_collide
 _TINY = 1e-12
 
 
-def generate_tangents(positions: np.ndarray, normals: np.ndarray,
-                      texcoords: np.ndarray, triangles: np.ndarray) -> np.ndarray:
+def generate_tangents(
+    positions: np.ndarray, normals: np.ndarray, texcoords: np.ndarray, triangles: np.ndarray
+) -> np.ndarray:
     """Per-vertex tangents, ``(V, 4)``, in glTF's convention.
 
     The first three components are the direction in which the texture's u
@@ -46,10 +48,11 @@ def generate_tangents(positions: np.ndarray, normals: np.ndarray,
         edge1, edge2 = b - a, c - a
         duv1, duv2 = ub - ua, uc - ua
         determinant = duv1[:, 0] * duv2[:, 1] - duv2[:, 0] * duv1[:, 1]
-        scale = np.divide(1.0, determinant, out=np.zeros_like(determinant),
-                          where=np.abs(determinant) > _TINY)
-        tangent = ((edge1 * duv2[:, 1:2] - edge2 * duv1[:, 1:2]) * scale[:, None])
-        bitangent = ((edge2 * duv1[:, 0:1] - edge1 * duv2[:, 0:1]) * scale[:, None])
+        scale = np.divide(
+            1.0, determinant, out=np.zeros_like(determinant), where=np.abs(determinant) > _TINY
+        )
+        tangent = (edge1 * duv2[:, 1:2] - edge2 * duv1[:, 1:2]) * scale[:, None]
+        bitangent = (edge2 * duv1[:, 0:1] - edge1 * duv2[:, 0:1]) * scale[:, None]
         for corner in range(3):
             np.add.at(accumulated, tris[:, corner], tangent)
             np.add.at(bitangents, tris[:, corner], bitangent)
@@ -63,11 +66,12 @@ def generate_tangents(positions: np.ndarray, normals: np.ndarray,
     if limp.any():
         orthogonal[limp] = _any_perpendicular(surface[limp])
         lengths = np.linalg.norm(orthogonal, axis=1, keepdims=True)
-    orthogonal = np.divide(orthogonal, lengths, out=np.zeros_like(orthogonal),
-                           where=lengths > _TINY)
+    orthogonal = np.divide(
+        orthogonal, lengths, out=np.zeros_like(orthogonal), where=lengths > _TINY
+    )
     handedness = np.where(
-        np.einsum('ij,ij->i', np.cross(surface, orthogonal), bitangents) < 0.0,
-        -1.0, 1.0)
+        np.einsum('ij,ij->i', np.cross(surface, orthogonal), bitangents) < 0.0, -1.0, 1.0
+    )
     return np.column_stack([orthogonal, handedness]).astype(np.float32)
 
 
@@ -85,22 +89,26 @@ def with_tangents(mesh: Mesh) -> Mesh:
     Primitives with no normals or no texture coordinates are passed through
     unchanged -- there is nothing to build a tangent frame from.
     """
-    out: List[Primitive] = []
+    out: list[Primitive] = []
     for p in mesh.primitives:
         if p.normals is None or p.texcoords is None or p.vertex_count == 0:
             out.append(p)
             continue
         attributes = dict(p.attributes)
-        attributes['TANGENT'] = generate_tangents(p.positions, p.normals,
-                                                  p.texcoords, p.triangles)
-        out.append(Primitive(attributes,
-                             None if p.indices is None else p.indices.copy(),
-                             p.mode, p.material, dict(p.extras)))
+        attributes['TANGENT'] = generate_tangents(p.positions, p.normals, p.texcoords, p.triangles)
+        out.append(
+            Primitive(
+                attributes,
+                None if p.indices is None else p.indices.copy(),
+                p.mode,
+                p.material,
+                dict(p.extras),
+            )
+        )
     return Mesh(out, mesh.name)
 
 
-def levels_of_detail(generator, levels: int = 3, factor: float = 2.0,
-                     **parameters) -> List[Mesh]:
+def levels_of_detail(generator, levels: int = 3, factor: float = 2.0, **parameters) -> list[Mesh]:
     """Build the same shape several times, each coarser than the last.
 
     ``generator`` is any function here that takes ``sides`` and/or ``tolerance``;
@@ -121,15 +129,15 @@ def levels_of_detail(generator, levels: int = 3, factor: float = 2.0,
         raise ValueError('levels must be at least 1, got %r' % (levels,))
     if factor <= 1.0:
         raise ValueError('factor must be greater than 1, got %r' % (factor,))
-    out: List[Mesh] = []
+    out: list[Mesh] = []
     for step in range(levels):
-        current: Dict[str, Any] = dict(parameters)
+        current: dict[str, Any] = dict(parameters)
         if 'sides' in current:
-            current['sides'] = max(3, int(round(current['sides'] / factor ** step)))
+            current['sides'] = max(3, int(round(current['sides'] / factor**step)))
         if 'tolerance' in current:
-            current['tolerance'] = current['tolerance'] * factor ** step
+            current['tolerance'] = current['tolerance'] * factor**step
         if 'sections' in current:
-            current['sections'] = max(2, int(round(current['sections'] / factor ** step)))
+            current['sections'] = max(2, int(round(current['sections'] / factor**step)))
         mesh = generator(**current)
         for p in mesh.primitives:
             p.extras['lod'] = step
@@ -137,7 +145,7 @@ def levels_of_detail(generator, levels: int = 3, factor: float = 2.0,
     return out
 
 
-def to_collider(mesh: Mesh, tolerance: float = 0.0) -> Dict[str, Any]:
+def to_collider(mesh: Mesh, tolerance: float = 0.0) -> dict[str, Any]:
     """The mesh as a physics engine wants it: welded positions and triangles.
 
     Returns a dictionary with ``positions`` ``(V, 3)`` float32, ``indices``
@@ -152,18 +160,20 @@ def to_collider(mesh: Mesh, tolerance: float = 0.0) -> Dict[str, Any]:
     """
     merged = mesh.merged().welded(tolerance)
     if not merged.primitives:
-        return {'positions': np.zeros((0, 3), np.float32),
-                'indices': np.zeros((0, 3), np.uint32),
-                'watertight': False, 'volume': 0.0}
-    positions: List[np.ndarray] = []
-    triangles: List[np.ndarray] = []
+        return {
+            'positions': np.zeros((0, 3), np.float32),
+            'indices': np.zeros((0, 3), np.uint32),
+            'watertight': False,
+            'volume': 0.0,
+        }
+    positions: list[np.ndarray] = []
+    triangles: list[np.ndarray] = []
     offset = 0
     for p in merged.primitives:
         positions.append(p.positions)
         triangles.append(p.triangles.astype(np.uint32) + offset)
         offset += p.vertex_count
-    combined = Primitive({'POSITION': np.concatenate(positions)},
-                         np.concatenate(triangles).ravel())
+    combined = Primitive({'POSITION': np.concatenate(positions)}, np.concatenate(triangles).ravel())
     solid = combined.welded(tolerance)
     return {
         'positions': solid.positions,

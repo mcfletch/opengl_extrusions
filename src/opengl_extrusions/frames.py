@@ -26,10 +26,10 @@ Neither frame can help with a path that doubles back on itself: reversing
 direction in zero distance has no continuous frame, and the sweep will pinch
 there whichever method is chosen.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -91,9 +91,7 @@ class PathFrames:
     def place(self, contour: np.ndarray, index: int) -> np.ndarray:
         """Put a contour into the frame at ``index``, returning ``(N, 3)`` points."""
         pts = np.asarray(contour, dtype=np.float64)
-        return (self.origin[index]
-                + pts[:, 0:1] * self.right[index]
-                + pts[:, 1:2] * self.up[index])
+        return self.origin[index] + pts[:, 0:1] * self.right[index] + pts[:, 1:2] * self.up[index]
 
 
 def _normalise(vectors: np.ndarray) -> np.ndarray:
@@ -110,8 +108,7 @@ def clean_path(path: Points, closed: bool = False) -> np.ndarray:
     """
     pts = np.asarray(path, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 3:
-        raise ValueError('path must be an (M, 3) array of 3D points, got %r'
-                         % (pts.shape,))
+        raise ValueError('path must be an (M, 3) array of 3D points, got %r' % (pts.shape,))
     if len(pts) and not np.isfinite(pts).all():
         raise ValueError('path contains a non-finite coordinate')
     if len(pts) < 2:
@@ -124,9 +121,13 @@ def clean_path(path: Points, closed: bool = False) -> np.ndarray:
     return out
 
 
-def path_frames(path: Points, up: Vector = (0.0, 1.0, 0.0),
-                method: str = 'up', closed: bool = False,
-                initial_right: Optional[Vector] = None) -> PathFrames:
+def path_frames(
+    path: Points,
+    up: Vector = (0.0, 1.0, 0.0),
+    method: str = 'up',
+    closed: bool = False,
+    initial_right: Vector | None = None,
+) -> PathFrames:
     """Build a frame at every point of ``path``.
 
     :param path: ``(M, 3)`` points. Consecutive duplicates are dropped.
@@ -141,8 +142,9 @@ def path_frames(path: Points, up: Vector = (0.0, 1.0, 0.0),
         parallel to ``up`` under ``method='up'``.
     """
     if method not in FRAME_METHODS:
-        raise ValueError('unknown frame method %r; expected one of %s'
-                         % (method, ', '.join(FRAME_METHODS)))
+        raise ValueError(
+            'unknown frame method %r; expected one of %s' % (method, ', '.join(FRAME_METHODS))
+        )
     pts = clean_path(path, closed=closed)
     if len(pts) < 2:
         raise FrameError('a path needs at least 2 distinct points, got %d' % len(pts))
@@ -152,15 +154,16 @@ def path_frames(path: Points, up: Vector = (0.0, 1.0, 0.0),
         right, frame_up = _reference_frame(forward, np.asarray(up, dtype=np.float64))
     else:
         right, frame_up = _rotation_minimizing_frame(
-            forward, np.asarray(up, dtype=np.float64), initial_right)
+            forward, np.asarray(up, dtype=np.float64), initial_right
+        )
     if initial_right is not None and method == 'up':
-        right, frame_up = _rotate_to_start(right, frame_up, forward,
-                                           np.asarray(initial_right, dtype=np.float64))
+        right, frame_up = _rotate_to_start(
+            right, frame_up, forward, np.asarray(initial_right, dtype=np.float64)
+        )
 
     steps = np.linalg.norm(np.diff(pts, axis=0), axis=1)
     arc_length = np.concatenate([[0.0], np.cumsum(steps)])
-    return PathFrames(pts, right, frame_up, forward, incoming, outgoing,
-                      arc_length, closed)
+    return PathFrames(pts, right, frame_up, forward, incoming, outgoing, arc_length, closed)
 
 
 def _directions(pts: np.ndarray, closed: bool):
@@ -202,14 +205,14 @@ def _reference_frame(forward: np.ndarray, reference: np.ndarray):
         raise FrameError(
             'the path runs parallel to up=%s %s, so there is no frame to '
             'build there; use method="rmf", or choose a different up'
-            % (tuple(round(float(v), 6) for v in reference), where))
+            % (tuple(round(float(v), 6) for v in reference), where)
+        )
     frame_up = projected / lengths[:, None]
     right = np.cross(frame_up, forward)
     return _normalise(right), frame_up
 
 
-def _rotation_minimizing_frame(forward: np.ndarray, seed: np.ndarray,
-                               initial_right: Optional[Vector]):
+def _rotation_minimizing_frame(forward: np.ndarray, seed: np.ndarray, initial_right: Vector | None):
     """Carry one frame along the path by the smallest rotation at each step.
 
     The double-reflection construction: reflecting the previous frame through the
@@ -247,27 +250,26 @@ def _rotation_minimizing_frame(forward: np.ndarray, seed: np.ndarray,
     return right, frame_up
 
 
-def _double_reflect(vector: np.ndarray, from_dir: np.ndarray,
-                    to_dir: np.ndarray) -> np.ndarray:
+def _double_reflect(vector: np.ndarray, from_dir: np.ndarray, to_dir: np.ndarray) -> np.ndarray:
     """Rotate ``vector`` by the rotation that takes ``from_dir`` to ``to_dir``."""
     bisector = from_dir + to_dir
     denominator = float(np.dot(bisector, bisector))
     if denominator <= _TINY:
-        return -vector                          # a full reversal; nothing else is defined
+        return -vector  # a full reversal; nothing else is defined
     reflected = vector - bisector * (2.0 * float(np.dot(bisector, vector)) / denominator)
     return reflected
 
 
-def _rotate_to_start(right: np.ndarray, frame_up: np.ndarray, forward: np.ndarray,
-                     desired: np.ndarray):
+def _rotate_to_start(
+    right: np.ndarray, frame_up: np.ndarray, forward: np.ndarray, desired: np.ndarray
+):
     """Spin every frame about its forward axis so the first matches ``desired``."""
     desired = desired - forward[0] * float(np.dot(desired, forward[0]))
     length = float(np.linalg.norm(desired))
     if length <= _TINY:
         return right, frame_up
     desired = desired / length
-    angle = np.arctan2(float(np.dot(desired, frame_up[0])),
-                       float(np.dot(desired, right[0])))
+    angle = np.arctan2(float(np.dot(desired, frame_up[0])), float(np.dot(desired, right[0])))
     cosine, sine = np.cos(angle), np.sin(angle)
     turned_right = right * cosine + frame_up * sine
     turned_up = -right * sine + frame_up * cosine

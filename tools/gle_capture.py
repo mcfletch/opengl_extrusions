@@ -32,12 +32,14 @@ module; it is a development tool and the subject of one test
 
     python tools/gle_capture.py extrusion --join angle --sides 12
 """
+
 from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -66,11 +68,11 @@ class Capture:
     """
 
     positions: np.ndarray
-    normals: Optional[np.ndarray]
-    texcoords: Optional[np.ndarray]
+    normals: np.ndarray | None
+    texcoords: np.ndarray | None
     triangles: np.ndarray
     primitive_sizes: np.ndarray
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
 
     def save(self, path: str) -> None:
         """Write the capture to a ``.npz``, with its parameters beside it."""
@@ -85,7 +87,7 @@ class Capture:
         )
 
     @classmethod
-    def load(cls, path: str) -> 'Capture':
+    def load(cls, path: str) -> Capture:
         with np.load(path, allow_pickle=False) as data:
             normals = data['normals']
             texcoords = data['texcoords']
@@ -110,14 +112,14 @@ class Capture:
 def _require_gl():
     """Import the GL machinery, or say clearly what is missing."""
     try:
-        from OpenGL import GL, GLE                      # noqa: F401
+        from OpenGL import GL, GLE
     except ImportError as error:
         raise GLEUnavailable('PyOpenGL with GLE support is needed: %s' % error) from error
     try:
-        import glfw                                     # noqa: F401
+        import glfw
     except ImportError as error:
         raise GLEUnavailable('glfw is needed to open a context: %s' % error) from error
-    if not hasattr(GLE, 'glePolyCone'):                 # pragma: no cover - odd builds
+    if not hasattr(GLE, 'glePolyCone'):  # pragma: no cover - odd builds
         raise GLEUnavailable('PyOpenGL loaded, but without the GLE entry points')
     return GL, GLE, glfw
 
@@ -155,8 +157,14 @@ def _setup_projection(GL) -> None:
     GL.glViewport(0, 0, *CAPTURE_SIZE)
     GL.glMatrixMode(GL.GL_PROJECTION)
     GL.glLoadIdentity()
-    GL.glOrtho(-CAPTURE_EXTENT, CAPTURE_EXTENT, -CAPTURE_EXTENT, CAPTURE_EXTENT,
-               -CAPTURE_EXTENT, CAPTURE_EXTENT)
+    GL.glOrtho(
+        -CAPTURE_EXTENT,
+        CAPTURE_EXTENT,
+        -CAPTURE_EXTENT,
+        CAPTURE_EXTENT,
+        -CAPTURE_EXTENT,
+        CAPTURE_EXTENT,
+    )
     GL.glMatrixMode(GL.GL_MODELVIEW)
     GL.glLoadIdentity()
 
@@ -187,14 +195,13 @@ def _lights(GL, sign: float) -> None:
     for index, axis in enumerate(axes):
         light = GL.GL_LIGHT0 + index
         GL.glEnable(light)
-        GL.glLightfv(light, GL.GL_POSITION,
-                     [sign * axis[0], sign * axis[1], sign * axis[2], 0.0])
+        GL.glLightfv(light, GL.GL_POSITION, [sign * axis[0], sign * axis[1], sign * axis[2], 0.0])
         GL.glLightfv(light, GL.GL_DIFFUSE, list(axis) + [1.0])
         GL.glLightfv(light, GL.GL_AMBIENT, [0.0, 0.0, 0.0, 1.0])
         GL.glLightfv(light, GL.GL_SPECULAR, [0.0, 0.0, 0.0, 1.0])
 
 
-def _run_feedback(GL, draw, mode) -> List[tuple]:
+def _run_feedback(GL, draw, mode) -> list[tuple]:
     """Run ``draw`` with the feedback buffer recording, and parse the stream."""
     buffer = np.zeros(1 << 22, dtype=np.float32)
     GL.glFeedbackBuffer(len(buffer), mode, buffer)
@@ -205,11 +212,11 @@ def _run_feedback(GL, draw, mode) -> List[tuple]:
 
 def _collect(records, want_colour: bool, want_texture: bool):
     """Flatten the parsed feedback stream into vertex arrays and triangles."""
-    positions: List[np.ndarray] = []
-    colours: List[np.ndarray] = []
-    textures: List[np.ndarray] = []
-    triangles: List[List[int]] = []
-    sizes: List[int] = []
+    positions: list[np.ndarray] = []
+    colours: list[np.ndarray] = []
+    textures: list[np.ndarray] = []
+    triangles: list[list[int]] = []
+    sizes: list[int] = []
     for record in records:
         vertices = [item for item in record[1:]]
         if not vertices:
@@ -224,15 +231,18 @@ def _collect(records, want_colour: bool, want_texture: bool):
         sizes.append(len(vertices))
         for k in range(1, len(vertices) - 1):
             triangles.append([base, base + k, base + k + 1])
-    return (np.asarray(positions) if positions else np.zeros((0, 3)),
-            np.asarray(colours) if colours else None,
-            np.asarray(textures) if textures else None,
-            np.asarray(triangles, dtype=np.int32) if triangles else np.zeros((0, 3), np.int32),
-            np.asarray(sizes, dtype=np.int32))
+    return (
+        np.asarray(positions) if positions else np.zeros((0, 3)),
+        np.asarray(colours) if colours else None,
+        np.asarray(textures) if textures else None,
+        np.asarray(triangles, dtype=np.int32) if triangles else np.zeros((0, 3), np.int32),
+        np.asarray(sizes, dtype=np.int32),
+    )
 
 
-def capture(draw, parameters: Optional[Dict[str, Any]] = None,
-            normals: bool = True, texture: bool = False) -> Capture:
+def capture(
+    draw, parameters: dict[str, Any] | None = None, normals: bool = True, texture: bool = False
+) -> Capture:
     """Record the geometry a drawing function emits.
 
     ``draw`` is called with no arguments and should issue GLE calls. It runs two
@@ -261,17 +271,21 @@ def capture(draw, parameters: Optional[Dict[str, Any]] = None,
                 # which for three orthogonal axes is the normal itself.
                 recovered = lit[0] - lit[1]
                 lengths = np.linalg.norm(recovered, axis=1, keepdims=True)
-                recovered = np.divide(recovered, lengths,
-                                      out=np.zeros_like(recovered), where=lengths > 1e-9)
+                recovered = np.divide(
+                    recovered, lengths, out=np.zeros_like(recovered), where=lengths > 1e-9
+                )
 
-    return Capture(_to_model(positions), recovered, texcoords, triangles, sizes,
-                   parameters or {})
+    return Capture(_to_model(positions), recovered, texcoords, triangles, sizes, parameters or {})
 
 
 # -- the calls worth measuring -------------------------------------------
 
-JOIN_FLAGS = {'raw': 'TUBE_JN_RAW', 'angle': 'TUBE_JN_ANGLE',
-              'cut': 'TUBE_JN_CUT', 'round': 'TUBE_JN_ROUND'}
+JOIN_FLAGS = {
+    'raw': 'TUBE_JN_RAW',
+    'angle': 'TUBE_JN_ANGLE',
+    'cut': 'TUBE_JN_CUT',
+    'round': 'TUBE_JN_ROUND',
+}
 
 
 def _join_style(GLE, join: str, cap: bool, closed: bool, normal_mode: str) -> int:
@@ -280,8 +294,11 @@ def _join_style(GLE, join: str, cap: bool, closed: bool, normal_mode: str) -> in
         flags |= GLE.TUBE_JN_CAP
     if closed:
         flags |= GLE.TUBE_CONTOUR_CLOSED
-    flags |= {'facet': GLE.TUBE_NORM_FACET, 'edge': GLE.TUBE_NORM_EDGE,
-              'path_edge': GLE.TUBE_NORM_PATH_EDGE}[normal_mode]
+    flags |= {
+        'facet': GLE.TUBE_NORM_FACET,
+        'edge': GLE.TUBE_NORM_EDGE,
+        'path_edge': GLE.TUBE_NORM_PATH_EDGE,
+    }[normal_mode]
     return flags
 
 
@@ -303,9 +320,19 @@ TEXTURE_MODES = {
 }
 
 
-def capture_extrusion(contour, contour_normals, path, up=(0.0, 1.0, 0.0),
-                      join='angle', cap=True, closed=True, normal_mode='edge',
-                      sides=20, texture=False, texture_mode=None) -> Capture:
+def capture_extrusion(
+    contour,
+    contour_normals,
+    path,
+    up=(0.0, 1.0, 0.0),
+    join='angle',
+    cap=True,
+    closed=True,
+    normal_mode='edge',
+    sides=20,
+    texture=False,
+    texture_mode=None,
+) -> Capture:
     """``gleExtrusion``: a contour swept along a polyline.
 
     ``texture_mode`` names one of :data:`TEXTURE_MODES` and switches GLE's own
@@ -316,20 +343,32 @@ def capture_extrusion(contour, contour_normals, path, up=(0.0, 1.0, 0.0),
 
     def draw():
         if texture_mode is not None:
-            GLE.gleTextureMode(GLE.GLE_TEXTURE_ENABLE
-                               | getattr(GLE, TEXTURE_MODES[texture_mode]))
+            GLE.gleTextureMode(GLE.GLE_TEXTURE_ENABLE | getattr(GLE, TEXTURE_MODES[texture_mode]))
         else:
             GLE.gleTextureMode(0)
         GLE.gleSetJoinStyle(_join_style(GLE, join, cap, closed, normal_mode))
         GLE.gleSetNumSides(sides)
-        GLE.gleExtrusion(np.asarray(contour, 'd'),
-                         None if contour_normals is None else np.asarray(contour_normals, 'd'),
-                         np.asarray(up, 'd'), np.asarray(path, 'd'), None)
+        GLE.gleExtrusion(
+            np.asarray(contour, 'd'),
+            None if contour_normals is None else np.asarray(contour_normals, 'd'),
+            np.asarray(up, 'd'),
+            np.asarray(path, 'd'),
+            None,
+        )
 
-    return capture(draw, {'call': 'gleExtrusion', 'join': join, 'cap': cap,
-                          'closed': closed, 'normal_mode': normal_mode,
-                          'texture_mode': texture_mode,
-                          'up': list(up)}, texture=texture or texture_mode is not None)
+    return capture(
+        draw,
+        {
+            'call': 'gleExtrusion',
+            'join': join,
+            'cap': cap,
+            'closed': closed,
+            'normal_mode': normal_mode,
+            'texture_mode': texture_mode,
+            'up': list(up),
+        },
+        texture=texture or texture_mode is not None,
+    )
 
 
 def capture_polycylinder(path, radius=1.0, join='angle', cap=True, sides=20) -> Capture:
@@ -341,8 +380,10 @@ def capture_polycylinder(path, radius=1.0, join='angle', cap=True, sides=20) -> 
         GLE.gleSetNumSides(sides)
         GLE.glePolyCylinder(np.asarray(path, 'd'), None, float(radius))
 
-    return capture(draw, {'call': 'glePolyCylinder', 'radius': radius, 'join': join,
-                          'cap': cap, 'sides': sides})
+    return capture(
+        draw,
+        {'call': 'glePolyCylinder', 'radius': radius, 'join': join, 'cap': cap, 'sides': sides},
+    )
 
 
 def capture_polycone(path, radii, join='angle', cap=True, sides=20) -> Capture:
@@ -354,13 +395,26 @@ def capture_polycone(path, radii, join='angle', cap=True, sides=20) -> Capture:
         GLE.gleSetNumSides(sides)
         GLE.glePolyCone(np.asarray(path, 'd'), None, np.asarray(radii, 'd'))
 
-    return capture(draw, {'call': 'glePolyCone', 'radii': list(radii), 'join': join,
-                          'cap': cap, 'sides': sides})
+    return capture(
+        draw,
+        {'call': 'glePolyCone', 'radii': list(radii), 'join': join, 'cap': cap, 'sides': sides},
+    )
 
 
-def capture_lathe(contour, contour_normals, up=(0.0, 0.0, 1.0), start_radius=1.0,
-                  delta_radius=0.0, start_z=0.0, delta_z=0.0, start_angle=0.0,
-                  sweep_angle=180.0, sides=20, closed=True, cap=True) -> Capture:
+def capture_lathe(
+    contour,
+    contour_normals,
+    up=(0.0, 0.0, 1.0),
+    start_radius=1.0,
+    delta_radius=0.0,
+    start_z=0.0,
+    delta_z=0.0,
+    start_angle=0.0,
+    sweep_angle=180.0,
+    sides=20,
+    closed=True,
+    cap=True,
+) -> Capture:
     """``gleLathe``: a contour swept around the z axis, sheared.
 
     ``up`` names the world direction of the *contour's y axis*, so (0, 0, 1)
@@ -372,57 +426,121 @@ def capture_lathe(contour, contour_normals, up=(0.0, 0.0, 1.0), start_radius=1.0
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, 'angle', cap, closed, 'edge'))
         GLE.gleSetNumSides(sides)
-        GLE.gleLathe(np.asarray(contour, 'd'),
-                     None if contour_normals is None else np.asarray(contour_normals, 'd'),
-                     np.asarray(up, 'd'), start_radius, delta_radius, start_z, delta_z,
-                     None, None, start_angle, sweep_angle)
+        GLE.gleLathe(
+            np.asarray(contour, 'd'),
+            None if contour_normals is None else np.asarray(contour_normals, 'd'),
+            np.asarray(up, 'd'),
+            start_radius,
+            delta_radius,
+            start_z,
+            delta_z,
+            None,
+            None,
+            start_angle,
+            sweep_angle,
+        )
 
-    return capture(draw, {'call': 'gleLathe', 'start_radius': start_radius,
-                          'delta_radius': delta_radius, 'start_z': start_z,
-                          'delta_z': delta_z, 'start_angle': start_angle,
-                          'sweep_angle': sweep_angle, 'sides': sides})
+    return capture(
+        draw,
+        {
+            'call': 'gleLathe',
+            'start_radius': start_radius,
+            'delta_radius': delta_radius,
+            'start_z': start_z,
+            'delta_z': delta_z,
+            'start_angle': start_angle,
+            'sweep_angle': sweep_angle,
+            'sides': sides,
+        },
+    )
 
 
-def capture_spiral(contour, contour_normals, up=(0.0, 0.0, 1.0), start_radius=1.0,
-                   delta_radius=0.0, start_z=0.0, delta_z=0.0, start_angle=0.0,
-                   sweep_angle=180.0, sides=20, closed=True, cap=True) -> Capture:
+def capture_spiral(
+    contour,
+    contour_normals,
+    up=(0.0, 0.0, 1.0),
+    start_radius=1.0,
+    delta_radius=0.0,
+    start_z=0.0,
+    delta_z=0.0,
+    start_angle=0.0,
+    sweep_angle=180.0,
+    sides=20,
+    closed=True,
+    cap=True,
+) -> Capture:
     """``gleSpiral``: a contour swept around the z axis, translated."""
     _, GLE, _ = _require_gl()
 
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, 'angle', cap, closed, 'edge'))
         GLE.gleSetNumSides(sides)
-        GLE.gleSpiral(np.asarray(contour, 'd'),
-                      None if contour_normals is None else np.asarray(contour_normals, 'd'),
-                      np.asarray(up, 'd'), start_radius, delta_radius, start_z, delta_z,
-                      None, None, start_angle, sweep_angle)
+        GLE.gleSpiral(
+            np.asarray(contour, 'd'),
+            None if contour_normals is None else np.asarray(contour_normals, 'd'),
+            np.asarray(up, 'd'),
+            start_radius,
+            delta_radius,
+            start_z,
+            delta_z,
+            None,
+            None,
+            start_angle,
+            sweep_angle,
+        )
 
-    return capture(draw, {'call': 'gleSpiral', 'start_radius': start_radius,
-                          'delta_radius': delta_radius, 'start_z': start_z,
-                          'delta_z': delta_z, 'start_angle': start_angle,
-                          'sweep_angle': sweep_angle, 'sides': sides})
+    return capture(
+        draw,
+        {
+            'call': 'gleSpiral',
+            'start_radius': start_radius,
+            'delta_radius': delta_radius,
+            'start_z': start_z,
+            'delta_z': delta_z,
+            'start_angle': start_angle,
+            'sweep_angle': sweep_angle,
+            'sides': sides,
+        },
+    )
 
 
-def capture_screw(contour, contour_normals, up=(0.0, 1.0, 0.0), start_z=-1.0,
-                  end_z=1.0, twist=90.0, sides=20, closed=True, cap=True) -> Capture:
+def capture_screw(
+    contour,
+    contour_normals,
+    up=(0.0, 1.0, 0.0),
+    start_z=-1.0,
+    end_z=1.0,
+    twist=90.0,
+    sides=20,
+    closed=True,
+    cap=True,
+) -> Capture:
     """``gleScrew``: a contour swept along z while turning."""
     _, GLE, _ = _require_gl()
 
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, 'angle', cap, closed, 'edge'))
         GLE.gleSetNumSides(sides)
-        GLE.gleScrew(np.asarray(contour, 'd'),
-                     None if contour_normals is None else np.asarray(contour_normals, 'd'),
-                     np.asarray(up, 'd'), start_z, end_z, twist)
+        GLE.gleScrew(
+            np.asarray(contour, 'd'),
+            None if contour_normals is None else np.asarray(contour_normals, 'd'),
+            np.asarray(up, 'd'),
+            start_z,
+            end_z,
+            twist,
+        )
 
-    return capture(draw, {'call': 'gleScrew', 'start_z': start_z, 'end_z': end_z,
-                          'twist': twist, 'sides': sides})
+    return capture(
+        draw,
+        {'call': 'gleScrew', 'start_z': start_z, 'end_z': end_z, 'twist': twist, 'sides': sides},
+    )
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('call', choices=['extrusion', 'polycylinder', 'polycone',
-                                         'lathe', 'spiral', 'screw'])
+    parser.add_argument(
+        'call', choices=['extrusion', 'polycylinder', 'polycone', 'lathe', 'spiral', 'screw']
+    )
     parser.add_argument('--join', default='angle', choices=sorted(JOIN_FLAGS))
     parser.add_argument('--sides', type=int, default=20)
     parser.add_argument('--no-cap', action='store_true')
@@ -431,18 +549,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     square = np.array([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
     normals = np.array([(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)])
-    path = np.array([(0.0, 0.0, 3.0), (0.0, 0.0, 1.0), (2.0, 0.0, -1.0),
-                     (4.0, 0.0, -2.0)])
+    path = np.array([(0.0, 0.0, 3.0), (0.0, 0.0, 1.0), (2.0, 0.0, -1.0), (4.0, 0.0, -2.0)])
 
     if args.call == 'extrusion':
-        result = capture_extrusion(square, normals, path, join=args.join,
-                                   cap=not args.no_cap, sides=args.sides)
+        result = capture_extrusion(
+            square, normals, path, join=args.join, cap=not args.no_cap, sides=args.sides
+        )
     elif args.call == 'polycylinder':
-        result = capture_polycylinder(path, 0.5, join=args.join,
-                                      cap=not args.no_cap, sides=args.sides)
+        result = capture_polycylinder(
+            path, 0.5, join=args.join, cap=not args.no_cap, sides=args.sides
+        )
     elif args.call == 'polycone':
-        result = capture_polycone(path, [0.2, 0.5, 0.8, 1.0], join=args.join,
-                                  cap=not args.no_cap, sides=args.sides)
+        result = capture_polycone(
+            path, [0.2, 0.5, 0.8, 1.0], join=args.join, cap=not args.no_cap, sides=args.sides
+        )
     elif args.call == 'lathe':
         result = capture_lathe(square, normals, sides=args.sides)
     elif args.call == 'spiral':
@@ -451,9 +571,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         result = capture_screw(square, normals, sides=args.sides)
 
     low, high = result.bounds
-    print('%s: %d vertices, %d triangles, %d primitives'
-          % (args.call, len(result.positions), len(result.triangles),
-             len(result.primitive_sizes)))
+    print(
+        '%s: %d vertices, %d triangles, %d primitives'
+        % (args.call, len(result.positions), len(result.triangles), len(result.primitive_sizes))
+    )
     print('  bounds %s .. %s' % (np.round(low, 4), np.round(high, 4)))
     print('  area   %.6f' % result.surface_area())
     if result.normals is not None:
@@ -464,5 +585,5 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     return 0
 
 
-if __name__ == '__main__':                       # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     raise SystemExit(main())

@@ -30,14 +30,14 @@ equilateral as the outline allows, which is what makes them shade well and
 subdivide well. It also supports refinement: ask for a maximum triangle area or a
 minimum angle and the mesh is subdivided until it complies.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
-from opengl_extrusions.cdt import Triangulation, WINDING_RULES
+from opengl_extrusions.cdt import WINDING_RULES, Triangulation
 from opengl_extrusions.planar import build_pslg
 
 __all__ = ['tessellate', 'Tessellation', 'METHODS']
@@ -74,22 +74,33 @@ class Tessellation:
             return 0.0
         p = self.points
         a, b, c = (p[self.triangles[:, i]] for i in range(3))
-        return float(0.5 * np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
-                                  - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])).sum())
+        return float(
+            0.5
+            * np.abs(
+                (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
+                - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+            ).sum()
+        )
 
 
 def _empty() -> Tessellation:
-    return Tessellation(np.zeros((0, 2), dtype=np.float64),
-                        np.zeros((0, 3), dtype=np.int32),
-                        np.zeros(0, dtype=np.int32))
+    return Tessellation(
+        np.zeros((0, 2), dtype=np.float64),
+        np.zeros((0, 3), dtype=np.int32),
+        np.zeros(0, dtype=np.int32),
+    )
 
 
-def tessellate(contours, winding: str = 'odd', method: str = 'cdt',
-               tolerance: Optional[float] = None,
-               min_angle: Optional[float] = None,
-               max_area: Optional[float] = None,
-               remove_collinear: bool = False,
-               max_points: int = 5000) -> Tessellation:
+def tessellate(
+    contours,
+    winding: str = 'odd',
+    method: str = 'cdt',
+    tolerance: float | None = None,
+    min_angle: float | None = None,
+    max_area: float | None = None,
+    remove_collinear: bool = False,
+    max_points: int = 5000,
+) -> Tessellation:
     """Triangulate one or more closed outlines.
 
     :param contours: one ``(N, 2)`` array of points, or a sequence of them. Each
@@ -120,11 +131,14 @@ def tessellate(contours, winding: str = 'odd', method: str = 'cdt',
         ``(N, 2)``, an unknown winding rule, or an unknown method.
     """
     if method not in METHODS:
-        raise ValueError('unknown tessellation method %r; expected one of %s'
-                         % (method, ', '.join(METHODS)))
+        raise ValueError(
+            'unknown tessellation method %r; expected one of %s' % (method, ', '.join(METHODS))
+        )
     if winding not in WINDING_RULES:
-        raise ValueError('unknown winding rule %r; expected one of %s'
-                         % (winding, ', '.join(sorted(WINDING_RULES))))
+        raise ValueError(
+            'unknown winding rule %r; expected one of %s'
+            % (winding, ', '.join(sorted(WINDING_RULES)))
+        )
 
     graph = build_pslg(contours, tolerance=tolerance, remove_collinear=remove_collinear)
     if len(graph.edges) == 0 or len(graph.points) < 3:
@@ -133,15 +147,14 @@ def tessellate(contours, winding: str = 'odd', method: str = 'cdt',
     mesh = Triangulation.from_pslg(graph)
     kept = mesh.classify(graph, winding)
     if min_angle is not None or max_area is not None:
-        kept = mesh.refine(None, kept, min_angle=min_angle, max_area=max_area,
-                           max_points=max_points)
+        kept = mesh.refine(
+            None, kept, min_angle=min_angle, max_area=max_area, max_points=max_points
+        )
 
     triangles = mesh.triangles
     if len(triangles) == 0 or len(kept) == 0:
-        return Tessellation(mesh.points, np.zeros((0, 3), dtype=np.int32),
-                            _sources(mesh, graph))
-    return Tessellation(mesh.points, triangles[kept].astype(np.int32),
-                        _sources(mesh, graph))
+        return Tessellation(mesh.points, np.zeros((0, 3), dtype=np.int32), _sources(mesh, graph))
+    return Tessellation(mesh.points, triangles[kept].astype(np.int32), _sources(mesh, graph))
 
 
 def _sources(mesh: Triangulation, graph) -> np.ndarray:

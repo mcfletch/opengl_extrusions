@@ -5,13 +5,14 @@ triangles that overlap, or that spill outside the outline, or that leave a gap,
 cannot sum to the polygon's own area. Nearly every case below ends with that
 comparison, because it catches what eyeballing a picture would not.
 """
+
 import numpy as np
 import pytest
 
 from opengl_extrusions import tessellate
-from opengl_extrusions.tessellate import Tessellation
 from opengl_extrusions.planar import polygon_area
 from opengl_extrusions.predicates import orient2d
+from opengl_extrusions.tessellate import Tessellation
 
 SQUARE = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
 ELL = [(0, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2)]
@@ -20,8 +21,7 @@ BOWTIE = [(0.0, 0.0), (1.0, 1.0), (1.0, 0.0), (0.0, 1.0)]
 
 def circle(radius=1.0, sides=64, centre=(0.0, 0.0)):
     a = np.linspace(0, 2 * np.pi, sides, endpoint=False)
-    return np.column_stack([centre[0] + radius * np.cos(a),
-                            centre[1] + radius * np.sin(a)])
+    return np.column_stack([centre[0] + radius * np.cos(a), centre[1] + radius * np.sin(a)])
 
 
 def pentagram(radius=1.0):
@@ -35,8 +35,12 @@ def total_area(result):
         return 0.0
     p = result.points
     a, b, c = p[result.triangles[:, 0]], p[result.triangles[:, 1]], p[result.triangles[:, 2]]
-    return float(0.5 * np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
-                              - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])).sum())
+    return float(
+        0.5
+        * np.abs(
+            (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+        ).sum()
+    )
 
 
 class TestSimpleShapes:
@@ -60,8 +64,9 @@ class TestSimpleShapes:
     def test_every_triangle_winds_counter_clockwise(self):
         result = tessellate([ELL])
         for tri in result.triangles:
-            assert orient2d(result.points[tri[0]], result.points[tri[1]],
-                            result.points[tri[2]]) == 1
+            assert (
+                orient2d(result.points[tri[0]], result.points[tri[1]], result.points[tri[2]]) == 1
+            )
 
     def test_no_triangle_is_degenerate(self):
         result = tessellate([circle(1.0, 40)])
@@ -109,7 +114,7 @@ class TestHolesAndRings:
 
     def test_hole_orientation_does_not_matter_under_the_odd_rule(self):
         outer = [(0, 0), (4, 0), (4, 4), (0, 4)]
-        inner = [(1, 1), (3, 1), (3, 3), (1, 3)]          # same winding as the outer
+        inner = [(1, 1), (3, 1), (3, 3), (1, 3)]  # same winding as the outer
         assert total_area(tessellate([outer, inner])) == pytest.approx(12.0)
 
     def test_hole_orientation_does_matter_under_the_nonzero_rule(self):
@@ -165,8 +170,9 @@ class TestRefinement:
         assert total_area(fine) == pytest.approx(1.0)
         p = fine.points
         a, b, c = p[fine.triangles[:, 0]], p[fine.triangles[:, 1]], p[fine.triangles[:, 2]]
-        areas = 0.5 * np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
-                             - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0]))
+        areas = 0.5 * np.abs(
+            (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+        )
         assert areas.max() <= 0.02 + 1e-9
 
     def test_min_angle_removes_slivers(self):
@@ -279,8 +285,9 @@ class TestRandomised:
         ring = rng.uniform(-1, 1, size=(9, 2))
         result = tessellate([ring])
         for tri in result.triangles:
-            assert orient2d(result.points[tri[0]], result.points[tri[1]],
-                            result.points[tri[2]]) == 1
+            assert (
+                orient2d(result.points[tri[0]], result.points[tri[1]], result.points[tri[2]]) == 1
+            )
 
 
 def _worst_angle(result):

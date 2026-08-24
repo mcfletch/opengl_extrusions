@@ -38,9 +38,8 @@ or turns as it is swept, rather than sliding as the section changes.
 See ``docs/GLE-PARITY.md`` for what was measured to establish these, and
 ``specs/SPEC-GLE-GEOMETRY.md`` for the facts themselves.
 """
-from __future__ import annotations
 
-from typing import Optional, Tuple
+from __future__ import annotations
 
 import numpy as np
 
@@ -51,10 +50,18 @@ PARAMETER_MODES = ('normalized', 'arc_length')
 
 #: The twelve generated modes, each named ``<source>[_model]_<projection>``.
 GENERATED_MODES = (
-    'vertex_flat', 'vertex_cyl', 'vertex_sph',
-    'normal_flat', 'normal_cyl', 'normal_sph',
-    'vertex_model_flat', 'vertex_model_cyl', 'vertex_model_sph',
-    'normal_model_flat', 'normal_model_cyl', 'normal_model_sph',
+    'vertex_flat',
+    'vertex_cyl',
+    'vertex_sph',
+    'normal_flat',
+    'normal_cyl',
+    'normal_sph',
+    'vertex_model_flat',
+    'vertex_model_cyl',
+    'vertex_model_sph',
+    'normal_model_flat',
+    'normal_model_cyl',
+    'normal_model_sph',
 )
 
 #: Everything ``texture=`` accepts, besides ``None``.
@@ -63,7 +70,7 @@ TEXTURE_MODES = PARAMETER_MODES + GENERATED_MODES
 _TINY = 1e-12
 
 
-def _decode(mode: str) -> Tuple[bool, bool, str]:
+def _decode(mode: str) -> tuple[bool, bool, str]:
     """``mode`` -> (use the normal, use the pre-transform contour, projection)."""
     use_normal = mode.startswith('normal')
     model = '_model_' in mode
@@ -71,9 +78,14 @@ def _decode(mode: str) -> Tuple[bool, bool, str]:
     return use_normal, model, projection
 
 
-def generated_uv(mode: str, placed_xy: np.ndarray, placed_normal_xy: np.ndarray,
-                 contour_xy: np.ndarray, contour_normal_xy: np.ndarray,
-                 arc_length: float) -> np.ndarray:
+def generated_uv(
+    mode: str,
+    placed_xy: np.ndarray,
+    placed_normal_xy: np.ndarray,
+    contour_xy: np.ndarray,
+    contour_normal_xy: np.ndarray,
+    arc_length: float,
+) -> np.ndarray:
     """Texture coordinates for one ring, in one of the generated modes.
 
     All four inputs are ``(N, 2)`` in the segment's own frame: the contour placed
@@ -85,7 +97,7 @@ def generated_uv(mode: str, placed_xy: np.ndarray, placed_normal_xy: np.ndarray,
     use_normal, model, projection = _decode(mode)
     if use_normal:
         source = contour_normal_xy if model else placed_normal_xy
-        depth = 0.0            # a side surface's normal lies in the contour plane
+        depth = 0.0  # a side surface's normal lies in the contour plane
     else:
         source = contour_xy if model else placed_xy
         # The segment runs along -z from its start, so travelling is negative z.
@@ -103,11 +115,10 @@ def generated_uv(mode: str, placed_xy: np.ndarray, placed_normal_xy: np.ndarray,
         return np.column_stack([u, np.full(len(x), float(arc_length))])
 
     radius = np.sqrt(x * x + y * y + depth * depth)
-    cosine = np.divide(depth, radius, out=np.zeros_like(radius),
-                       where=radius > _TINY)
+    cosine = np.divide(depth, radius, out=np.zeros_like(radius), where=radius > _TINY)
     v = 1.0 - np.arccos(np.clip(cosine, -1.0, 1.0)) / np.pi
     return np.column_stack([u, v])
 
 
-def unused(value: Optional[str] = None) -> None:      # pragma: no cover
+def unused(value: str | None = None) -> None:  # pragma: no cover
     """Kept out of the public surface."""

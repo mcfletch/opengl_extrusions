@@ -11,20 +11,27 @@ before trusting a mesh to anything: a surface that claims to be closed but has a
 hundred boundary edges will leak, and one where three triangles share an edge is
 not a surface at all.
 """
+
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 
 __all__ = [
-    'weld_vertices', 'is_manifold', 'is_watertight', 'boundary_edges',
-    'edge_counts', 'signed_volume', 'surface_area',
+    'weld_vertices',
+    'is_manifold',
+    'is_watertight',
+    'boundary_edges',
+    'edge_counts',
+    'signed_volume',
+    'surface_area',
 ]
 
 
-def weld_vertices(positions: np.ndarray, extra: Optional[Sequence[np.ndarray]] = None,
-                  tolerance: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
+def weld_vertices(
+    positions: np.ndarray, extra: Sequence[np.ndarray] | None = None, tolerance: float = 0.0
+) -> tuple[np.ndarray, np.ndarray]:
     """Collapse vertices that agree, in position and in everything else given.
 
     :param positions: ``(V, 3)`` vertex positions.
@@ -45,7 +52,7 @@ def weld_vertices(positions: np.ndarray, extra: Optional[Sequence[np.ndarray]] =
         return np.zeros(0, dtype=np.int32), np.zeros(0, dtype=np.int32)
 
     columns = [pts]
-    for array in (extra or ()):
+    for array in extra or ():
         columns.append(np.asarray(array, dtype=np.float64).reshape(len(pts), -1))
     table = np.concatenate(columns, axis=1)
     if tolerance > 0.0:
@@ -53,10 +60,10 @@ def weld_vertices(positions: np.ndarray, extra: Optional[Sequence[np.ndarray]] =
         # comparison. Neighbouring cells are not searched: a vertex pair split
         # across a cell boundary stays split, which errs toward keeping detail.
         table = np.round(table / tolerance) * tolerance
-        table = table + 0.0                      # normalise any -0.0 to 0.0
+        table = table + 0.0  # normalise any -0.0 to 0.0
 
     seen: dict = {}
-    order: List[int] = []
+    order: list[int] = []
     mapping = np.empty(len(pts), dtype=np.int32)
     for i, row in enumerate(map(tuple, table)):
         target = seen.get(row)
@@ -88,7 +95,7 @@ def is_manifold(triangles: np.ndarray) -> bool:
     return all(count <= 2 for count in edge_counts(triangles).values())
 
 
-def boundary_edges(triangles: np.ndarray) -> List[Tuple[int, int]]:
+def boundary_edges(triangles: np.ndarray) -> list[tuple[int, int]]:
     """Edges used by exactly one triangle: the open rim of the surface."""
     return sorted(edge for edge, count in edge_counts(triangles).items() if count == 1)
 

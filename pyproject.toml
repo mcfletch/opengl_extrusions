@@ -111,6 +111,10 @@ ignore = [
 # rather than the previous state where the config named a formatter that was
 # never run.
 quote-style = "single"
+# Prose is wrapped by hand to read at a comfortable width, and the examples in
+# it are broken at the places that explain them rather than at the column the
+# formatter would choose.
+exclude = ["*.md"]
 
 [tool.mypy]
 python_version = "3.12"

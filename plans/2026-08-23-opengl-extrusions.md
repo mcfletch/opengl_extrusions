@@ -127,18 +127,18 @@ The shape the request asks for: parameters in, geometry out, no callbacks.
 from opengl_extrusions import extrude, lathe, screw, spiral, polycone, circle
 
 mesh = extrude(
-    circle(radius=0.2, sides=16),      # contour: (N,2) array or a Contour
-    path=[(0,0,0), (0,1,0), (1,2,0)],  # (M,3) path, or a Curve from curves.py
-    join='angle',                      # raw | angle | cut | round
+    circle(radius=0.2, sides=16),  # contour: (N,2) array or a Contour
+    path=[(0, 0, 0), (0, 1, 0), (1, 2, 0)],  # (M,3) path, or a Curve from curves.py
+    join='angle',  # raw | angle | cut | round
     caps=True,
-    normals='edge',                    # facet | edge | path_edge, or a crease angle
-    texture='vertex_cyl',              # any GLE mode, or 'arc_length', or None
+    normals='edge',  # facet | edge | path_edge, or a crease angle
+    texture='vertex_cyl',  # any GLE mode, or 'arc_length', or None
     closed_contour=True,
     up=(0, 1, 0),
 )
-mesh.primitives[0].attributes['POSITION']    # (V,3) float32
-mesh.primitives[0].indices                   # (T*3,) uint32
-mesh.to_gltf()                               # glTF 2.0 document (dict + buffers)
+mesh.primitives[0].attributes['POSITION']  # (V,3) float32
+mesh.primitives[0].indices  # (T*3,) uint32
+mesh.to_gltf()  # glTF 2.0 document (dict + buffers)
 mesh.to_glb('pipe.glb')
 ```
 
@@ -185,11 +185,12 @@ it.
 ```python
 @dataclass
 class Primitive:
-    attributes: dict[str, np.ndarray]   # POSITION, NORMAL, TEXCOORD_0, TANGENT, COLOR_0
+    attributes: dict[str, np.ndarray]  # POSITION, NORMAL, TEXCOORD_0, TANGENT, COLOR_0
     indices: np.ndarray | None
-    mode: int = 4                       # GL_TRIANGLES
+    mode: int = 4  # GL_TRIANGLES
     material: int | None = None
-    extras: dict                        # provenance: generator name and parameters
+    extras: dict  # provenance: generator name and parameters
+
 
 @dataclass
 class Mesh:
@@ -212,8 +213,10 @@ serialised, nothing is parsed, and the glTF loader is not involved:
 
 ```python
 mesh = extrude(circle(0.2), path=spine)
-shape = Shape(geometry=PBRMesh(**mesh.primitives[0].arrays()),
-              appearance=Appearance(material=PBRMaterial(...)))
+shape = Shape(
+    geometry=PBRMesh(**mesh.primitives[0].arrays()),
+    appearance=Appearance(material=PBRMaterial(...)),
+)
 ```
 
 **And no copy at the boundary.** `PBRMesh` normalises with
@@ -249,9 +252,9 @@ inside the cap code.
 from opengl_extrusions import tessellate
 
 points, indices = tessellate(
-    contours,                # one (N,2) array, or a list of them (outer + holes)
-    winding='odd',           # odd | nonzero | positive | negative | abs_geq_two
-    holes='auto',            # 'auto' detects by containment+orientation, or explicit
+    contours,  # one (N,2) array, or a list of them (outer + holes)
+    winding='odd',  # odd | nonzero | positive | negative | abs_geq_two
+    holes='auto',  # 'auto' detects by containment+orientation, or explicit
 )
 ```
 

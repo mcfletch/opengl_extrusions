@@ -26,60 +26,126 @@ NumPy is the only runtime dependency. The geometric predicates' inner loop is
 additionally compiled where a compiler was available; see
 :data:`opengl_extrusions.predicates.ACCELERATED`.
 """
+
 from __future__ import annotations
 
-from opengl_extrusions.predicates import (
-    orient2d, incircle, NonFinitePointError,
-)
-from opengl_extrusions.planar import (
-    PSLG, DegenerateContourError, build_pslg, clean_contour,
-    polygon_area, polygon_orientation, point_in_polygon,
-)
-from opengl_extrusions.cdt import Triangulation, TriangulationError, WINDING_RULES
-from opengl_extrusions.tessellate import tessellate, Tessellation
-from opengl_extrusions.mesh import Mesh, Primitive, MeshError
+from opengl_extrusions.cdt import WINDING_RULES, Triangulation, TriangulationError
 from opengl_extrusions.contours import (
-    circle, regular_polygon, rectangle, rounded_rectangle, star, contour_normals,
-)
-from opengl_extrusions.frames import path_frames, PathFrames, FrameError
-from opengl_extrusions.sweep import SweepError, JOIN_STYLES, NORMAL_MODES
-from opengl_extrusions.shapes import (
-    extrude, lathe, spiral, screw, helicoid, toroid, polycylinder, polycone,
-)
-from opengl_extrusions.vrml97 import vrml97_extrusion, spine_frames
-from opengl_extrusions.tangents import (
-    generate_tangents, with_tangents, levels_of_detail, to_collider,
+    circle,
+    contour_normals,
+    rectangle,
+    regular_polygon,
+    rounded_rectangle,
+    star,
 )
 from opengl_extrusions.curves import (
-    helix, catmull_rom, bezier, bspline, sample_adaptive, resample_uniform,
-    arc_lengths, CurveError,
+    CurveError,
+    arc_lengths,
+    bezier,
+    bspline,
+    catmull_rom,
+    helix,
+    resample_uniform,
+    sample_adaptive,
 )
+from opengl_extrusions.frames import FrameError, PathFrames, path_frames
+from opengl_extrusions.mesh import Mesh, MeshError, Primitive
+from opengl_extrusions.planar import (
+    PSLG,
+    DegenerateContourError,
+    build_pslg,
+    clean_contour,
+    point_in_polygon,
+    polygon_area,
+    polygon_orientation,
+)
+from opengl_extrusions.predicates import (
+    NonFinitePointError,
+    incircle,
+    orient2d,
+)
+from opengl_extrusions.shapes import (
+    extrude,
+    helicoid,
+    lathe,
+    polycone,
+    polycylinder,
+    screw,
+    spiral,
+    toroid,
+)
+from opengl_extrusions.sweep import JOIN_STYLES, NORMAL_MODES, SweepError
+from opengl_extrusions.tangents import (
+    generate_tangents,
+    levels_of_detail,
+    to_collider,
+    with_tangents,
+)
+from opengl_extrusions.tessellate import Tessellation, tessellate
+from opengl_extrusions.vrml97 import spine_frames, vrml97_extrusion
 
 __version__ = '0.1.0a1'
 
 __all__ = [
     '__version__',
     # generators
-    'extrude', 'lathe', 'spiral', 'screw', 'helicoid', 'toroid',
-    'polycylinder', 'polycone', 'vrml97_extrusion', 'spine_frames',
+    'extrude',
+    'lathe',
+    'spiral',
+    'screw',
+    'helicoid',
+    'toroid',
+    'polycylinder',
+    'polycone',
+    'vrml97_extrusion',
+    'spine_frames',
     # what a mesh needs downstream
-    'with_tangents', 'generate_tangents', 'levels_of_detail', 'to_collider',
+    'with_tangents',
+    'generate_tangents',
+    'levels_of_detail',
+    'to_collider',
     # curves to sweep along
-    'helix', 'catmull_rom', 'bezier', 'bspline', 'sample_adaptive',
-    'resample_uniform', 'arc_lengths', 'CurveError',
+    'helix',
+    'catmull_rom',
+    'bezier',
+    'bspline',
+    'sample_adaptive',
+    'resample_uniform',
+    'arc_lengths',
+    'CurveError',
     # contours to sweep
-    'circle', 'regular_polygon', 'rectangle', 'rounded_rectangle', 'star',
+    'circle',
+    'regular_polygon',
+    'rectangle',
+    'rounded_rectangle',
+    'star',
     'contour_normals',
     # what comes back
-    'Mesh', 'Primitive', 'MeshError',
+    'Mesh',
+    'Primitive',
+    'MeshError',
     # tessellation
-    'tessellate', 'Tessellation', 'WINDING_RULES',
+    'tessellate',
+    'Tessellation',
+    'WINDING_RULES',
     # sweeping
-    'path_frames', 'PathFrames', 'FrameError', 'SweepError',
-    'JOIN_STYLES', 'NORMAL_MODES',
+    'path_frames',
+    'PathFrames',
+    'FrameError',
+    'SweepError',
+    'JOIN_STYLES',
+    'NORMAL_MODES',
     # the pieces it is built from, useful in their own right
-    'Triangulation', 'TriangulationError',
-    'PSLG', 'build_pslg', 'clean_contour', 'DegenerateContourError',
-    'polygon_area', 'polygon_orientation', 'point_in_polygon',
-    'orient2d', 'incircle', 'NonFinitePointError',
+    'Triangulation',
+    'TriangulationError',
+    'PSLG',
+    'build_pslg',
+    'clean_contour',
+    'DegenerateContourError',
+    'polygon_area',
+    'polygon_orientation',
+    'point_in_polygon',
+    'orient2d',
+    'incircle',
+    'NonFinitePointError',
 ]
