@@ -1,6 +1,10 @@
 [build-system]
-# Cython is a build-time convenience, not a requirement: the accelerator it
-# produces is optional and the package works without it.
+# Cython is required to build the package: everything listed here is installed
+# for every source build, and ``setup.py`` calls ``cythonize`` to produce the
+# accelerated predicates. What is optional is the *result* -- a machine with no
+# C compiler still installs, and falls back to the pure-Python predicates at
+# import time. Nothing here is optional at runtime; ``dependencies`` below is
+# the whole runtime requirement.
 requires = ["setuptools>=77", "wheel", "Cython>=3.0"]
 build-backend = "setuptools.build_meta"
 
@@ -24,6 +28,13 @@ classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
     "Topic :: Multimedia :: Graphics :: 3D Rendering",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
@@ -34,8 +45,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
-# The GLE capture harness (tools/gle_capture.py) only; never imported by the package.
+test = ["pytest", "hypothesis>=6.0"]
+# The GLE capture harness (tools/gle_capture.py) only; never imported by the
+# package. PyOpenGL 4 is a pre-release, so this extra needs ``pip install --pre``.
 gle = ["PyOpenGL>=4.0.0a1", "glfw>=2.0"]
 dev = [
     "opengl_extrusions[test]",
@@ -56,19 +68,49 @@ where = ["src"]
 opengl_extrusions = ["py.typed", "*.pyx"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra"
+# ``src`` is on testpaths so that the worked examples in the module docstrings
+# are run: they are the first code a reader meets, and an example that has
+# drifted from the code teaches the drift.
+testpaths = ["tests", "src"]
+addopts = "-ra --doctest-modules"
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "B"]
-ignore = [
-    "E501",  # line too long (handled by the formatter)
-    "E741",  # ambiguous variable name
+select = [
+    "E", "W", "F", "B",
+    "ARG",  # unused arguments -- a parameter nothing reads is a lie in a signature
+    "I",    # import order
+    "UP",   # constructs superseded by the minimum Python
+    "SIM",  # simplifications
+    "C4",   # comprehensions
+    "RUF",
 ]
+ignore = [
+    "E501",   # line too long: held by the formatter's line-length, above
+    "E741",   # ambiguous variable name
+    "RUF005", # concatenation is clearer than unpacking for short literal joins
+    # Diagnostics are written with ``%`` formatting throughout, so that the
+    # message and the values it interpolates read as two separate things. That
+    # is a house style, consistently applied, and `%` is not deprecated.
+    "UP031",
+    # ``__all__`` is grouped by what each name is for, with a comment per group.
+    # Alphabetical order would cost a reader more than it buys them.
+    "RUF022",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# A test that pins an error signature has to call the thing that raises, and
+# `pytest.raises` is the assertion -- so its result is deliberately unused.
+"tests/*" = ["ARG001", "ARG002"]
+
+[tool.ruff.format]
+# The codebase is single-quoted throughout and the formatter now holds that,
+# rather than the previous state where the config named a formatter that was
+# never run.
+quote-style = "single"
 
 [tool.mypy]
 python_version = "3.12"
@@ -79,16 +121,17 @@ ignore_missing_imports = true
 # type errors it would otherwise find. Every other check stays on.
 warn_return_any = false
 
-[tool.tox]
-# Both paths are tested everywhere: the compiled predicates where they built,
-# and the pure ones under the environment switch, since the two must agree.
-env_list = ["py310", "py311", "py312", "py313", "py314", "pure"]
+# The tox matrix lives in tox.ini, where the `[gh]` table tox-gh reads can sit
+# beside it; .github/workflows/test.yml drives it.
 
-[tool.tox.env_run_base]
-extras = ["test"]
-commands = [["pytest", "{posargs:-q}"]]
-
-[tool.tox.env.pure]
-extras = ["test"]
-set_env = {OPENGL_EXTRUSIONS_NO_ACCEL = "1"}
-commands = [["pytest", "{posargs:-q}"]]
+[tool.cibuildwheel]
+# Stable CPython only. A wheel per platform means an ordinary `pip install`
+# gets the compiled predicates without needing a toolchain.
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux_i686 *_i686"
+build-frontend = "build"
+# `setup.py` deliberately treats a failed accelerator build as a warning rather
+# than an error, which is right for a source install on an unknown machine and
+# wrong for a wheel we publish: it would ship as a silently slower package. So
+# the wheel is required to carry the extension.
+test-command = 'python -c "from opengl_extrusions import predicates; assert predicates.ACCELERATED; print(\"predicates: compiled\")"'

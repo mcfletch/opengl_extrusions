@@ -188,12 +188,21 @@ def _reference_frame(forward: np.ndarray, reference: np.ndarray):
     reference = reference / max(float(np.linalg.norm(reference)), _TINY)
     projected = reference - forward * np.einsum('ij,j->i', forward, reference)[:, None]
     lengths = np.linalg.norm(projected, axis=1)
-    if (lengths <= 1e-9).any():
-        index = int(np.argmin(lengths))
+    parallel = np.flatnonzero(lengths <= 1e-9)
+    if len(parallel):
+        # Say where, because one bad point in a long path is a different problem
+        # from a path that is vertical end to end, and the two want different
+        # answers -- move the point, or change method.
+        if len(parallel) == len(lengths):
+            where = 'at all %d of its points' % (len(lengths),)
+        elif len(parallel) == 1:
+            where = 'at point %d' % (parallel[0],)
+        else:
+            where = 'at %d of its points, first at point %d' % (len(parallel), parallel[0])
         raise FrameError(
-            'the path runs parallel to up=%s at point %d, so there is no frame to '
+            'the path runs parallel to up=%s %s, so there is no frame to '
             'build there; use method="rmf", or choose a different up'
-            % (tuple(np.round(reference, 6)), index))
+            % (tuple(round(float(v), 6) for v in reference), where))
     frame_up = projected / lengths[:, None]
     right = np.cross(frame_up, forward)
     return _normalise(right), frame_up

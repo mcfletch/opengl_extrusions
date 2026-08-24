@@ -1,0 +1,162 @@
+name: release
+
+# Every push to main runs the full test matrix; if it is green *and* the version
+# in src/opengl_extrusions/__init__.py is not already on PyPI, wheels and an
+# sdist are built and published there by trusted publishing.
+#
+# So a push that does not bump the version is an ordinary CI run, and bumping
+# the version is what cuts a release. Nothing is ever published from a red
+# build: PyPI versions are immutable, and a release number burned on a broken
+# build cannot be taken back.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # The same jobs a pull request runs -- every supported Python, both predicate
+  # implementations, lint and types. Called rather than duplicated, so the gate
+  # cannot drift from the checks.
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  version:
+    name: version
+    needs: tests
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - id: check
+        name: Is this version already on PyPI?
+        run: |
+          VERSION=$(python - <<'EOF'
+          import pathlib, re, sys
+          text = pathlib.Path('src/opengl_extrusions/__init__.py').read_text(encoding='utf-8')
+          found = re.search(r'''^__version__\s*=\s*['"]([^'"]+)['"]''', text, re.M)
+          if not found:
+              sys.exit('no __version__ in src/opengl_extrusions/__init__.py')
+          print(found.group(1))
+          EOF
+          )
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Only 200 and 404 are answers. Anything else -- a 5xx, a timeout, a
+          # DNS failure -- means PyPI did not tell us, and guessing "not
+          # published" would turn an outage into a failed upload against an
+          # immutable version. Fail loudly instead and let a re-run settle it.
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 \
+                 "https://pypi.org/pypi/opengl_extrusions/$VERSION/json" || echo 000)
+          case "$CODE" in
+            200)
+              echo "opengl_extrusions $VERSION is already on PyPI; nothing to publish."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "opengl_extrusions $VERSION is not on PyPI; it will be published."
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "PyPI answered HTTP $CODE for opengl_extrusions $VERSION; refusing to guess."
+              exit 1
+              ;;
+          esac
+
+  # Binary wheels carry the compiled predicates, so an ordinary `pip install`
+  # gets the accelerated filter without needing a toolchain. The sdist below is
+  # what a platform with no wheel falls back to, and it builds the pure path.
+  wheels:
+    name: wheels · ${{ matrix.os }}
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build wheels
+        # Build config (targets, skips, test-command) lives in pyproject.toml
+        # under [tool.cibuildwheel].
+        run: |
+          python -m pip install --upgrade pip "cibuildwheel>=2.22"
+          python -m cibuildwheel --output-dir wheelhouse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  sdist:
+    name: sdist
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the sdist
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build --sdist
+      - name: Check the metadata renders on PyPI
+        run: python -m twine check --strict dist/*
+      # The version the check job read and the version actually built have to be
+      # the same thing, or the skip-if-published test was about a different
+      # release than the one about to be uploaded.
+      - name: Confirm the sdist carries the version that was checked
+        env:
+          EXPECTED: ${{ needs.version.outputs.version }}
+        run: test -f "dist/opengl_extrusions-$EXPECTED.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: ./dist/*.tar.gz
+
+  publish:
+    name: publish to PyPI
+    needs: [tests, version, wheels, sdist]
+    # The `needs:` gate already requires all four; stating the results as well
+    # keeps the guarantee if someone later edits this workflow -- adding
+    # `always()` to one job would otherwise let a red or partial build reach
+    # PyPI, and a release that shipped only the sdist because one wheel failed
+    # cannot be taken back.
+    if: >-
+      needs.tests.result == 'success' &&
+      needs.version.outputs.publish == 'true' &&
+      needs.wheels.result == 'success' &&
+      needs.sdist.result == 'success'
+    runs-on: ubuntu-latest
+
+    # Trusted publishing (OIDC): on PyPI, add a publisher for this repository
+    # with workflow `release.yml` and the environment field left **blank**. The
+    # OIDC claim carries no environment, so a publisher that names one will not
+    # match and the upload is rejected. No API token is stored anywhere.
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Collect wheels and sdist
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A second net under the version check: a re-run of an already-published
+          # commit is a no-op rather than a failure. The check job is what makes
+          # the ordinary path skip early; this is what makes a race harmless.
+          skip-existing: true

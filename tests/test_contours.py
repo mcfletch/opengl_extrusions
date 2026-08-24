@@ -128,6 +128,30 @@ class TestPathFrames:
         with pytest.raises(FrameError):
             path_frames(path, up=(0, 1, 0), method='up')
 
+    def test_the_parallel_to_up_message_reads_as_text_a_user_wrote(self):
+        path = np.array([(0, 0, 0), (0, 1, 0), (0, 2, 0)], float)
+        with pytest.raises(FrameError) as caught:
+            path_frames(path, up=(0, 1, 0), method='up')
+        message = str(caught.value)
+        assert 'np.float64' not in message
+        assert 'up=(0.0, 1.0, 0.0)' in message
+
+    def test_the_parallel_to_up_message_says_the_whole_path_is_parallel(self):
+        path = np.array([(0, 0, 0), (0, 1, 0), (0, 2, 0)], float)
+        with pytest.raises(FrameError) as caught:
+            path_frames(path, up=(0, 1, 0), method='up')
+        assert 'all 3 of its points' in str(caught.value)
+
+    def test_the_parallel_to_up_message_names_the_point_when_only_one_is_parallel(self):
+        # A chevron whose apex bisects to +y: only the middle point is parallel
+        # to ``up``, and the two ends are 45 degrees off it.
+        path = np.array([(0, 0, 0), (0, 1, 1), (0, 2, 0)], float)
+        with pytest.raises(FrameError) as caught:
+            path_frames(path, up=(0, 1, 0), method='up')
+        message = str(caught.value)
+        assert 'at point 1' in message
+        assert 'all 3' not in message
+
     def test_the_rotation_minimizing_method_copes_with_a_vertical_path(self):
         path = np.array([(0, 0, 0), (0, 1, 0), (0, 2, 0)], float)
         f = path_frames(path, up=(0, 1, 0), method='rmf')

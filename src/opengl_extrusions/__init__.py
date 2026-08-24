@@ -6,7 +6,18 @@ with it: render it, weld it, hand it to a physics engine, write it out.
 
     >>> from opengl_extrusions import extrude, circle
     >>> mesh = extrude(circle(radius=0.2, sides=16),
-    ...                path=[(0, 0, 0), (0, 1, 0), (1, 2, 0)])
+    ...                path=[(0, 0, 0), (0, 0, 1), (1, 0, 2)])
+    >>> mesh.primitives[0].positions.shape
+    (96, 3)
+
+The default frame keeps the contour's own "up" as near to ``up=(0, 1, 0)`` as it
+can, which has nothing to align to where the path runs straight up. Sweep a
+vertical path with ``frames='rmf'``, which carries each frame from the one
+before it and so has no direction that breaks it:
+
+    >>> mast = extrude(circle(radius=0.2, sides=16),
+    ...                path=[(0, 0, 0), (0, 1, 0), (0, 2, 0)],
+    ...                frames='rmf')
 
 The polygon tessellator the caps are built on is a public API in its own right,
 usable for any 2D outline with holes -- see :func:`tessellate`.

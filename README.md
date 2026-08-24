@@ -10,10 +10,21 @@ tangents and an index buffer, named the way glTF names them.
 from opengl_extrusions import extrude, circle
 
 pipe = extrude(circle(radius=0.1, sides=16),
-               path=[(0, 0, 0), (0, 1, 0), (1, 2, 0)])
+               path=[(0, 0, 0), (0, 0, 1), (1, 0, 2)])
 
 pipe.primitives[0].positions      # (V, 3) float32, C-contiguous
 pipe.primitives[0].indices        # (T*3,) uint32
+```
+
+The default frame orients the contour against a fixed `up=(0, 1, 0)`, which has
+nothing to align to where the path runs straight up. For a path that may point
+anywhere — a vertical mast, a cable, a loop — ask for the rotation-minimizing
+frame instead:
+
+```python
+mast = extrude(circle(radius=0.1, sides=16),
+               path=[(0, 0, 0), (0, 1, 0), (0, 2, 0)],
+               frames='rmf')
 ```
 
 ![Swept shapes](docs/images/shapes.png)

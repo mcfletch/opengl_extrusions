@@ -1,9 +1,17 @@
 *.so
-*.c
+# Cython's output for the accelerator, generated at build time. Named
+# explicitly rather than as ``*.c``, so that hand-written C added later is
+# not silently swallowed by the ignore.
+src/opengl_extrusions/_predicates_native.c
 build/
+dist/
 __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
 .tox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
