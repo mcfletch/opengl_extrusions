@@ -1,8 +1,7 @@
 """Turn 2D outlines into triangles.
 
-This is a general-purpose polygon tessellator, useful well beyond the extrusion
-caps it was written for: font glyphs, filled faces, floor plans, map polygons --
-anything given as an outline and wanted as a mesh.
+Nothing here is specific to the extrusion caps that use it: an outline is an
+outline, whether it comes from a font glyph, a floor plan or a map polygon.
 
     >>> from opengl_extrusions import tessellate
     >>> result = tessellate([[(0, 0), (1, 0), (1, 1), (0, 1)]])

@@ -359,15 +359,12 @@ mesh.primitives[0].attributes  # the same, under their glTF names
 mesh.primitives[0].arrays()  # under a renderer's keyword names
 ```
 
-### This is the form OpenGLContext's glTF renderer already works in
+### The form OpenGLContext's glTF renderer works in
 
-A `Primitive` is not merely *glTF-shaped* in the abstract. It is the same
-arrangement of arrays that OpenGLContext's
-[`PBRMesh`](https://github.com/mcfletch/openglcontext) holds — the node its glTF
-loader builds for **every primitive of every `.glb` it loads**. Attribute names,
-component types, index type and memory layout all line up, so a mesh generated
-here and a mesh decoded from a file arrive at the renderer indistinguishable
-from one another:
+A `Primitive` holds the same arrangement of arrays as OpenGLContext's
+[`PBRMesh`](https://github.com/mcfletch/openglcontext), the node its glTF loader
+builds for every primitive of every `.glb` it loads: the same attribute names,
+component types, index type and memory layout.
 
 ```python
 from OpenGLContext.scenegraph.pbrmesh import PBRMesh
@@ -375,8 +372,7 @@ from OpenGLContext.scenegraph.pbrmesh import PBRMesh
 node = PBRMesh(**mesh.primitives[0].arrays())
 ```
 
-`arrays()` exists for exactly that call: it renames the glTF semantics to the
-keywords `PBRMesh.__init__` takes.
+`arrays()` renames the glTF semantics to the keywords `PBRMesh.__init__` takes.
 
 | Here | `PBRMesh` keyword |
 |---|---|
@@ -388,19 +384,16 @@ keywords `PBRMesh.__init__` takes.
 | `indices` | `indices` |
 | `mode` | `draw_mode` |
 
-**And nothing is copied.** `PBRMesh` normalises what it is given with
+Nothing is copied on the way. `PBRMesh` normalises what it is given with
 `asarray(..., float32)` and `ascontiguousarray`, and its indices with
-`asarray(..., uint32)` — every one of which is a no-op on an array that already
-holds that dtype and layout. That is why this library commits to emitting
-C-contiguous `float32` attributes and `uint32` indices rather than whatever
-NumPy happened to produce: the array the generator filled is the array the VBO
-uploads, with no conversion pass in between. OpenGLContext's
-`test_the_arrays_are_handed_over_without_copying` holds it with
-`np.shares_memory`.
+`asarray(..., uint32)`, each a no-op on an array that already holds that dtype
+and layout — which is why the generators here emit C-contiguous `float32`
+attributes and `uint32` indices: the array the generator filled is the array the
+VBO uploads. OpenGLContext's `test_the_arrays_are_handed_over_without_copying`
+covers it.
 
-If you are not using OpenGLContext, none of this is wasted: those are the types
-a GL vertex buffer wants anyway, so `glBufferData` takes them directly, and so
-does anything else that speaks glTF's vocabulary.
+Those are the types a GL vertex buffer takes in any case, so `glBufferData`
+accepts them directly with or without OpenGLContext.
 
 | Method | What it does |
 |---|---|

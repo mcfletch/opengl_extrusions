@@ -1,10 +1,29 @@
-# opengl_extrusions
+# opengl_extrusions -- tessellation and extrusion library
 
-Tubing, extrusion, lathing and polygon tessellation, as NumPy arrays.
+Tubing, extrusion, lathing and polygon tessellation, producing NumPy arrays
+
+This library provides loosely the same capabilities as the GLE Tubing and
+Extrusion library for use with modern core-profile rendering systems, i.e.
+those which expect arrays of points and indices rather than a GL call-list.
+It is used in the OpenGLContext project to replace the GLE based extrusions
+and GLU based tessellations.
+
+The tessellator is a [CDT tessellator](https://en.wikipedia.org/wiki/Constrained_Delaunay_triangulation) which differs from the
+GLU library's tessellator which is often deprecated on newer platforms.
+The biggest observable change should be that the tessellations are 
+less likely to have very narrow long triangles, which cause weird 
+artefacts when rendering.
+
+The library aims to be portable: NumPy is the only runtime dependency, and the
+one compiled component — the geometric predicates — is built by Cython at
+install time where a compiler is present, with a pure-Python fallback giving the
+same results where it is not.
 
 Give it a 2D outline and a path, and it hands back the vertex arrays for the
 surface that outline sweeps out — positions, normals, texture coordinates,
-tangents and an index buffer, named the way glTF names them.
+tangents and an index buffer, named the way glTF names them. No attempt
+is made to match the GLU or GLE APIs, as they don't cleanly map to modern
+rendering patterns.
 
 ```python
 from opengl_extrusions import extrude, circle
@@ -32,19 +51,19 @@ mast = extrude(circle(radius=0.1, sides=16),
 *Lathe, spiral, screw, toroid, polycylinder and polycone — every named shape,
 generated here and drawn by OpenGLContext in a core profile.*
 
-## What it makes
+## API Highlights
 
 | Call | Shape |
 |---|---|
-| `extrude(contour, path)` | any outline swept along any path |
-| `polycylinder(path, radius)` | a round tube of constant radius |
+| `extrude(contour, path)` | outline swept along any path |
+| `polycylinder(path, radius)` | a round tube of constant radius along a polyline |
 | `polycone(path, radii)` | a tube whose radius is given at every point |
 | `lathe(contour, …)` | swept about the z axis, contour plane staying radial |
 | `spiral(contour, …)` | swept along a helix, contour plane square to the path |
 | `screw(contour, …)` | extruded along z while turning |
 | `helicoid(…)`, `toroid(…)` | the two above with a circular section |
-| `vrml97_extrusion(…)` | VRML97's `Extrusion` node, to its specification |
-| `tessellate(contours)` | 2D outlines into triangles — useful on its own |
+| `vrml97_extrusion(…)` | [VRML97's `Extrusion` node](https://tecfa.unige.ch/guides/vrml/vrml97/spec/part1/nodesRef.html#Extrusion), to its specification |
+| `tessellate(contours)` | 2D outlines into triangles using [CDT tessellation](https://en.wikipedia.org/wiki/Constrained_Delaunay_triangulation) |
 
 Sweeps take corners four ways (`raw`, `angle`, `cut`, `round`), shade three ways
 (`facet`, `edge`, `path_edge`), cap either end, close into a loop, taper, twist,
@@ -52,11 +71,10 @@ take per-point colour, and follow splines sampled to a curvature tolerance.
 
 ## The tessellator
 
-`tessellate()` turns 2D outlines into triangles and is a public API in its own
-right — font glyphs, filled faces, floor plans, map polygons. It is a
-**constrained Delaunay triangulation** with exact-sign predicates, so it handles
-outlines that cross themselves, holes, coincident vertices and T-junctions, and
-the triangles it produces have the largest smallest angle the outline allows.
+`tessellate()` turns 2D outlines into triangles, and is usable without the rest
+of the library. It handles outlines that cross themselves, holes, coincident
+vertices and T-junctions, and the triangles it produces have the largest
+smallest angle the outline allows.
 
 ![Tessellation](docs/images/tessellation.png)
 
@@ -94,43 +112,41 @@ PyOpenGL, so it needs `pip install --pre 'opengl_extrusions[gle]'`.
 
 ## Documentation
 
-- [docs/API.md](docs/API.md) — every entry point, every parameter, units and limits
-- [docs/TESSELLATION.md](docs/TESSELLATION.md) — the tessellator, in detail
+- [docs/API.md](docs/API.md) — the entry points and their parameters
+- [docs/TESSELLATION.md](docs/TESSELLATION.md) — the tessellator
 - [docs/CURVES.md](docs/CURVES.md) — splines and adaptive sampling
 - [docs/GLE-PARITY.md](docs/GLE-PARITY.md) — how this compares to the GLE tubing library
-- [specs/SPEC-GLE-GEOMETRY.md](specs/SPEC-GLE-GEOMETRY.md) — the measured facts the GLE parity rests on
-- [specs/SPEC-VRML97-EXTRUSION.md](specs/SPEC-VRML97-EXTRUSION.md) — the ISO/IEC 14772-1 clauses the `Extrusion` node is built from
+- [specs/SPEC-GLE-GEOMETRY.md](specs/SPEC-GLE-GEOMETRY.md) — the GLE geometry the parity tests check against
+- [specs/SPEC-VRML97-EXTRUSION.md](specs/SPEC-VRML97-EXTRUSION.md) — the ISO/IEC 14772-1 clauses the `Extrusion` node implements
 
 ## Design
 
 **glTF is the vocabulary, not the container.** Attributes are called `POSITION`,
-`NORMAL`, `TEXCOORD_0` and stored in the types glTF stores them in, but they are
-plain NumPy arrays rather than accessors into a blob. Almost nothing that
-generates geometry goes on to write a file, and a caller who had to decode an
-accessor to reach a vertex would be worse off than one handed the array.
-`to_gltf()` and `to_glb()` exist for the cases that do want a file.
+`NORMAL`, `TEXCOORD_0` and carry the types glTF gives them, but each is a plain
+NumPy array rather than an accessor into a blob, so reading a vertex is indexing
+rather than decoding. `to_gltf()` and `to_glb()` write the file form.
 
-**The arrays are ready to upload, in the form a glTF renderer already uses.**
-C-contiguous `float32` attributes, `uint32` indices — which is not a coincidence
-but the point: it is the same arrangement OpenGLContext's `PBRMesh` holds, the
-node its glTF loader builds for every primitive of every `.glb` it reads. A mesh
-generated here and a mesh decoded from a file reach the renderer
-indistinguishable from one another, and handing one over costs nothing because
-there is nothing left to convert:
+**The arrays are in the form a GL vertex buffer takes.** C-contiguous `float32`
+attributes and `uint32` indices are what `glBufferData` wants, so no conversion
+step stands between a generated mesh and the GPU. It is also the arrangement
+OpenGLContext's `PBRMesh` holds, so a mesh from here can be handed to one
+without a copy:
 
 ```python
 from OpenGLContext.scenegraph.pbrmesh import PBRMesh
 node = PBRMesh(**pipe.primitives[0].arrays())      # no copy: shares memory
 ```
 
-Those are the types a GL vertex buffer wants in any case, so `glBufferData`
-takes them directly whether or not OpenGLContext is anywhere nearby.
-
-**Exact where it matters.** Every geometric decision in the tessellator goes
-through orientation and in-circle predicates that return an exact sign — a
-floating-point determinant answers "collinear" for points that are not, and a
-triangulation built on that answer is not a triangulation.
+**The predicates return an exact sign.** Orientation and in-circle tests decide
+every step of the tessellation, and a floating-point determinant near zero
+answers "collinear" for points that are not, which produces a triangulation that
+is not one.
 
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+This library was generated by a large language model under human direction, and
+jurisdictions differ on whether such material attracts copyright at all. Where
+it does not, the code may be used freely; where it does, the MIT terms govern
+it. The authorship note in [LICENSE](LICENSE) has the detail.

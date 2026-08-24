@@ -8,8 +8,8 @@ not.
 That is what ``tolerance`` means throughout: the greatest distance the straight
 line between two samples may stray from the true curve, in model units. Halving
 it roughly doubles the samples in the curved parts and leaves the straight parts
-alone, which is the whole point -- a road with two hairpins and a mile of
-straight should not pay for the hairpins over the whole mile.
+alone, so a road with two hairpins and a mile of straight does not pay for the
+hairpins over the whole mile.
 """
 
 from __future__ import annotations

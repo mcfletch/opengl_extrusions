@@ -51,8 +51,8 @@ documentation and from black-box measurement instead.
 
 GLE draws *M − 2* segments from *M* path points: the first and last exist only to
 set the angle the extrusion is cut off at, so three points draw one segment
-(SPEC §1). That is a real convention with a real use, but it surprises everyone
-who meets it, and it makes a two-point path draw nothing at all.
+(SPEC §1). That is a real convention with a real use, and it makes a two-point
+path draw nothing at all.
 
 Here, **every segment given is drawn**. Pass `path_ends='construction'` to
 `sweep()` for GLE's rule where you need it.
@@ -114,13 +114,11 @@ here is an argument to the call that uses it.
 The parity test lives in `tests/gle/`, needs the `gle` extra
 (`pip install opengl_extrusions[gle]`) and a GL driver with GLE, and skips
 cleanly without them. It **calls GLE** and compares against freshly generated
-geometry rather than against stored numbers: a match needs nothing stored,
-because the comparison just happened.
+geometry rather than against stored numbers.
 
-If the two ever disagree, the case is to be pinned as a committed `.npz` under
+A case where the two disagree is pinned as a committed `.npz` under
 `tests/gle/data/`, carrying the decision that goes with it — a stored number
-here would mean "the two once disagreed", and nothing else. There are none: the
-comparison has always been live.
+there records a disagreement, and nothing else.
 
 **The parity test compares geometry, not shading.** `tools/gle_capture.py` reads
 the GL feedback buffer, which records where a vertex was drawn; a normal is

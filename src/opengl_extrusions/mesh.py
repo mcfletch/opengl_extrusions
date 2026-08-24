@@ -1,30 +1,22 @@
 """What a generator hands back: arrays, named the way glTF names them.
 
 glTF supplies the *vocabulary* here, not the container. The attributes are called
-``POSITION``, ``NORMAL``, ``TEXCOORD_0`` and so on because those names are
-understood everywhere, and they are stored in the types glTF stores them in --
-but they are stored as plain NumPy arrays, not as accessors into a binary blob.
-Almost nothing that generates geometry goes on to write a file, and a caller who
-had to decode an accessor to reach a vertex would be worse off than one handed
-the array.
-
-So the everyday path is:
+``POSITION``, ``NORMAL``, ``TEXCOORD_0`` and so on, and carry the types glTF
+gives them, but each is a plain NumPy array rather than an accessor into a
+binary blob, so reading a vertex is indexing rather than decoding:
 
     >>> mesh = extrude(circle(0.2), path=spine)             # doctest: +SKIP
     >>> mesh.primitives[0].positions                        # doctest: +SKIP
     array([...], dtype=float32)
 
-and writing a file is a side door, for the cases that want one:
-:meth:`Mesh.to_gltf` and :meth:`Mesh.to_glb`.
+:meth:`Mesh.to_gltf` and :meth:`Mesh.to_glb` write the file form.
 
-**The arrays are ready to upload, in the form a glTF renderer already uses.**
-Attributes are C-contiguous ``float32`` and indices are ``uint32``. That is the
-same arrangement OpenGLContext's ``PBRMesh`` holds -- the node its glTF loader
-builds for every primitive of every ``.glb`` it reads -- so a generated mesh and
-a decoded one reach the renderer indistinguishable from one another, and
-:meth:`Primitive.arrays` renames the semantics to the keywords that node takes.
-Passing a mesh on therefore costs nothing: there is nothing left to convert, and
-an array handed in already in that form is kept rather than copied.
+Attributes are C-contiguous ``float32`` and indices are ``uint32``, which is
+what a GL vertex buffer takes, so no conversion stands between a generated mesh
+and the GPU. It is also the arrangement OpenGLContext's ``PBRMesh`` holds, and
+:meth:`Primitive.arrays` renames the semantics to the keywords that node takes,
+so a mesh can be handed over without a copy. An array passed in already in that
+form is likewise kept rather than converted.
 """
 
 from __future__ import annotations

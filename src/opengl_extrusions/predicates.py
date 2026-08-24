@@ -14,9 +14,8 @@ is larger than the bound its sign is already certain and it is returned. Only
 when the result falls inside the bound -- the near-degenerate cases, rare in
 real input -- does it recompute in exact integer arithmetic.
 
-The exact path costs perhaps a hundred times a float evaluation and is taken
-perhaps once in a thousand calls, which is the trade this design is making:
-never wrong, and fast in the common case.
+The exact path costs perhaps a hundred times a float evaluation, and is taken
+perhaps once in a thousand calls.
 
     >>> orient2d((0, 0), (1, 0), (0, 1))
     1

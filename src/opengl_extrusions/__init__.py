@@ -19,8 +19,8 @@ before it and so has no direction that breaks it:
     ...                path=[(0, 0, 0), (0, 1, 0), (0, 2, 0)],
     ...                frames='rmf')
 
-The polygon tessellator the caps are built on is a public API in its own right,
-usable for any 2D outline with holes -- see :func:`tessellate`.
+The polygon tessellator the caps are built on takes any 2D outline, with holes
+-- see :func:`tessellate`.
 
 NumPy is the only runtime dependency. The geometric predicates' inner loop is
 additionally compiled where a compiler was available; see

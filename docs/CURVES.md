@@ -49,8 +49,8 @@ mesh = extrude(circle(0.2, 12), path, frames='rmf')
 ```
 
 Halving the tolerance roughly doubles the samples in the curved parts and leaves
-the straight parts alone. That is the whole point: a road with two hairpins and
-a mile of straight should not pay for the hairpins over the whole mile.
+the straight parts alone, so a road with two hairpins and a mile of straight
+does not pay for the hairpins over the whole mile.
 
 ![Sampling](images/fig_curve_sampling.png)
 
@@ -72,9 +72,9 @@ function of one parameter, curve or not.
 | `arc_lengths(points)` | cumulative distance along a polyline |
 | `resample_uniform(points, spacing)` | re-space a polyline evenly along itself, shape unchanged |
 
-`resample_uniform` is worth knowing about: it does not change the shape, only
-where the samples sit. Useful before texturing by index, or for a sweep whose
-rings should be evenly spread however the path was authored.
+`resample_uniform` changes where the samples sit, not the shape they describe —
+for texturing by index, or for a sweep whose rings should be evenly spread
+however the path was authored.
 
 ## Closed paths and vertical paths
 

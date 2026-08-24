@@ -1,9 +1,8 @@
 # Tessellation
 
-Turning 2D outlines into triangles. This is a general-purpose tessellator: it
-was written for extrusion end caps, but nothing about it is specific to them.
-Font glyphs, filled faces, floor plans, map polygons — anything given as an
-outline and wanted as a mesh.
+Turning 2D outlines into triangles. Nothing here is specific to the extrusion
+end caps that use it: an outline is an outline, whether it comes from a font
+glyph, a floor plan or a map polygon.
 
 ```python
 from opengl_extrusions import tessellate
@@ -40,7 +39,7 @@ Everything before the `PSLG` box is about making the input *planar*, which is
 what a constrained triangulation needs and what almost no real input is.
 Everything after it is the triangulation itself.
 
-## Preprocessing: the part that makes real input work
+## Preprocessing
 
 A triangulator needs vertices that are distinct, edges that meet only at shared
 endpoints, and no vertex sitting in the middle of somebody else's edge. Real
@@ -145,15 +144,14 @@ star, for example:
 | 28° | 453 | 0.34 s |
 | 30° | 990 | 0.57 s |
 
-So ask for the angle you need rather than the largest one you can name, and
-remember that a **plain** tessellation -- no refinement at all -- is the cheap
-common case, and the one an extrusion cap uses unless you ask for more.
+So ask for the angle you need rather than the largest one you can name. A
+**plain** tessellation -- no refinement at all -- is the cheap case, and the one
+an extrusion cap uses unless you ask for more.
 
 **Refinement to an angle bound cannot always succeed.** No placement of new
 points can widen an input corner that is already sharper than the target, so
 `max_points` bounds the work and what comes back is the best mesh that budget
-reached — valid, just not fully refined. That is a deliberate choice: a
-triangulator that never returns is worse than one that returns a coarse answer.
+reached — valid, just not fully refined.
 
 ## Why constrained Delaunay
 
@@ -170,10 +168,9 @@ That matters for three reasons:
 
 ## Speed
 
-The base triangulation is linear enough not to think about: a 256-point outline
-takes about 20 ms, and an extrusion cap -- which is the common case, unrefined --
-is a fraction of that. Refinement is where the time goes, and the table above is
-the shape of it.
+A 256-point outline triangulates in about 20 ms, and an extrusion cap —
+unrefined, and smaller — in a fraction of that. Refinement is where the time
+goes, and the table above is the shape of it.
 
 **The predicates are compiled where they can be.** They are the innermost thing
 in the whole library, asked millions of times by a triangulation of any size, so
@@ -188,11 +185,10 @@ built if a compiler is present and skipped without complaint if not:
 ``OPENGL_EXTRUSIONS_NO_ACCEL=1`` forces the pure path. The test suite runs both
 and requires the same triangles out of each, down to the vertex.
 
-What is **not** vectorised, and will not be: the triangulation's own topology.
-Walking to a point, growing a cavity, recovering an edge and flooding the
-regions are all pointer-chasing over a mesh that changes as you go, and there is
-no array operation hiding in them. The wins available there are algorithmic --
-not repeating global work per inserted point -- and those have been taken.
+The triangulation's own topology is **not** vectorised. Walking to a point,
+growing a cavity, recovering an edge and flooding the regions are pointer-chasing
+over a mesh that changes as you go, so the speed available there is algorithmic
+— not repeating global work per inserted point — rather than in array operations.
 
 ## Exactness
 
@@ -202,9 +198,9 @@ point is inside a circle. Each evaluates in floating point with a bound on its
 own error, and recomputes in exact integer arithmetic only when the answer falls
 inside that bound.
 
-This is not fastidiousness. A plain floating-point determinant reports a point a
-few units in the last place off a long baseline as being exactly *on* it — and
-that answer, taken together with other answers that disagree with it, builds
+A plain floating-point determinant reports a point a few units in the last place
+off a long baseline as being exactly *on* it — and that answer, taken together
+with other answers that disagree with it, builds
 topology that is not a triangulation: an edge belonging to three triangles, a
 flip that loops forever, a point that lands in no triangle at all. The exact
 path costs perhaps a hundred times a float evaluation and is taken perhaps once
@@ -223,7 +219,7 @@ in a thousand calls.
 ## Related
 
 - `polygon_area`, `polygon_orientation`, `point_in_polygon` — the measurements,
-  exported alongside, exact where it matters.
+  exported alongside, and using the same exact predicates.
 - `build_pslg` — the preprocessing on its own, for a caller who wants the planar
   graph rather than the triangles.
 - `Triangulation` — the triangulator directly: insert points, force edges, ask
