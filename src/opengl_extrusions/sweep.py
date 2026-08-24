@@ -704,6 +704,10 @@ def build_from_stations(
         )
 
     contour_u = _contour_parameter(ring, closed_contour, texture)
+    # Once for the whole sweep rather than once per station: the generated
+    # texture modes each ask for the same contour's normals at every ring, and
+    # for a long path that recomputation is the most expensive part of texturing.
+    ring_normals = contour_normals(ring, closed=True) if texture in GENERATED_MODES else None
     positions: list[np.ndarray] = []
     surface_normals: list[np.ndarray] = []
     texcoords: list[np.ndarray] = []
@@ -734,8 +738,8 @@ def build_from_stations(
             block_normals = np.repeat(face, 4, axis=0)
             block_uv = None
             if texture is not None:
-                first_uv = _station_uv(first, texture, contour_u, ring)
-                second_uv = _station_uv(second, texture, contour_u, ring)
+                first_uv = _station_uv(first, texture, contour_u, ring, ring_normals)
+                second_uv = _station_uv(second, texture, contour_u, ring, ring_normals)
                 block_uv = np.stack(
                     [
                         first_uv[quad_first],
@@ -760,8 +764,8 @@ def build_from_stations(
             if texture is not None:
                 block_uv = np.concatenate(
                     [
-                        _station_uv(first, texture, contour_u, ring),
-                        _station_uv(second, texture, contour_u, ring),
+                        _station_uv(first, texture, contour_u, ring, ring_normals),
+                        _station_uv(second, texture, contour_u, ring, ring_normals),
                     ]
                 )
             block_indices = np.stack(
@@ -849,13 +853,18 @@ def _without_degenerates(positions: np.ndarray, indices: np.ndarray) -> np.ndarr
 
 
 def _station_uv(
-    station: Station, texture: str, contour_u: np.ndarray, ring: np.ndarray
+    station: Station,
+    texture: str,
+    contour_u: np.ndarray,
+    ring: np.ndarray,
+    ring_normals: np.ndarray | None,
 ) -> np.ndarray:
     """One ring's texture coordinates, in whichever mode was asked for.
 
     The parameter modes read the contour's own arc length and the distance
     travelled; the generated modes read the placed contour in the segment's
-    frame, which is why a station keeps it.
+    frame, which is why a station keeps it, and the contour's own normals, which
+    the caller computes once for the whole sweep and passes in.
     """
     if texture in GENERATED_MODES:
         placed = station.placed_xy if station.placed_xy is not None else ring
@@ -864,30 +873,10 @@ def _station_uv(
             if station.placed_normal_xy is not None
             else np.zeros_like(ring)
         )
-        return generated_uv(
-            texture, placed, placed_normals, ring, _contour_normals_2d(ring), station.arc_length
-        )
+        if ring_normals is None:  # pragma: no cover - the caller supplies them
+            ring_normals = contour_normals(ring, closed=True)
+        return generated_uv(texture, placed, placed_normals, ring, ring_normals, station.arc_length)
     return np.column_stack([contour_u, np.full(len(contour_u), station.arc_length)])
-
-
-def _contour_normals_2d(ring: np.ndarray) -> np.ndarray:
-    """The contour's own normals, for the ``model`` texture modes.
-
-    Cached on the array itself: a sweep asks for the same contour's normals once
-    per station, and recomputing them each time would be the most expensive part
-    of texturing a long path.
-    """
-    cached = _CONTOUR_NORMAL_CACHE.get(id(ring))
-    if cached is not None and cached[0] is ring:
-        return cached[1]
-    computed = contour_normals(ring, closed=True)
-    _CONTOUR_NORMAL_CACHE[id(ring)] = (ring, computed)
-    return computed
-
-
-#: Contour normals by array identity, for the ``model`` texture modes. Bounded
-#: by the number of distinct contours a process sweeps, which is small.
-_CONTOUR_NORMAL_CACHE: dict[int, tuple[np.ndarray, np.ndarray]] = {}
 
 
 def _strip_pairs(stations: list[Station], closed_path: bool) -> list[tuple[int, int]]:

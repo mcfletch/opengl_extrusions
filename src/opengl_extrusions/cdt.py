@@ -151,17 +151,25 @@ class Triangulation:
         self._edge: dict[tuple[int, int], int] = {}
         self._constrained: set[tuple[int, int]] = set()
         self._segment_delta: dict[tuple[int, int], int] = {}
-        #: ``_segment_delta`` as arrays, with the sizes it was built at.
-        self._segment_cache: tuple[tuple[int, int], np.ndarray, np.ndarray] | None = None
+        #: ``_segment_delta`` as arrays. Dropped by :meth:`_invalidate_segments`
+        #: wherever the segment set changes, rather than being keyed on
+        #: something derived from it: two different graphs over the same points
+        #: have the same size, and a cache that could not tell them apart would
+        #: refine against the graph before last.
+        self._segment_cache: tuple[np.ndarray, np.ndarray] | None = None
         self._winding: dict[int, int] = {}
         #: one triangle known to touch each vertex, for rotating around it
         self._vertex_tri: dict[int, int] = {}
         self._rule = 'odd'
         self._last_inserted: list[int] = []
-        #: Every triangle made, in order. An operation notes the length before
-        #: it starts and reads off what it created; the list is cleared whenever
-        #: nobody is watching.
-        self._created: list[int] = []
+        #: The triangles an operation has made since it started watching, or
+        #: ``None`` when nobody is. Only :meth:`_split_segment` watches, and it
+        #: wants what its own nested calls created -- so the list lives for that
+        #: call and is put down again afterwards, rather than accumulating every
+        #: triangle the mesh has ever held.
+        self._created: list[int] | None = None
+        #: What the last :meth:`_split_segment` made, for the refinement's work list.
+        self._last_split: list[int] = []
         self._last = -1
         self._points_cache: np.ndarray | None = None
 
@@ -213,6 +221,12 @@ class Triangulation:
             if verts is not None and doomed.intersection(verts):
                 self._remove_triangle(t)
         del self._pts[supers[0] :]
+        # Those vertex indices are handed straight back out to `add_point` and
+        # to refinement, so a fan hint left against one sends the rotation
+        # around a vertex that is now somewhere else entirely. The recovery is a
+        # full scan of the mesh, which is silent and O(T) rather than wrong.
+        for v in supers:
+            self._vertex_tri.pop(v, None)
         self._points_cache = None
         self._last = self._any_triangle()
 
@@ -248,7 +262,8 @@ class Triangulation:
             t = len(self._tri)
             self._tri.append(None)
         self._tri[t] = [a, b, c]
-        self._created.append(t)
+        if self._created is not None:
+            self._created.append(t)
         self._vertex_tri[a] = t
         self._vertex_tri[b] = t
         self._vertex_tri[c] = t
@@ -267,6 +282,11 @@ class Triangulation:
             if self._edge.get(edge) == t:
                 del self._edge[edge]
         self._tri[t] = None
+        # The index goes back on the free list, so anything else keyed by it has
+        # to go now. A winding left behind would be inherited by whichever
+        # triangle is made next, and the region it labels would be wrong in a
+        # way nothing downstream can see.
+        self._winding.pop(t, None)
         self._free.append(t)
         if self._last == t:
             self._last = self._any_triangle()
@@ -479,7 +499,6 @@ class Triangulation:
                 boundary.append((first, second))
         winding = self._winding.get(cavity[0])
         for c in cavity:
-            self._winding.pop(c, None)
             self._remove_triangle(c)
         made: list[int] = []
         for a, b in boundary:
@@ -537,24 +556,30 @@ class Triangulation:
             raise TriangulationError('a constraint needs two distinct vertices')
         if not (0 <= a < len(self._pts) and 0 <= b < len(self._pts)):
             raise TriangulationError('constraint refers to a vertex that does not exist')
-        self._constrained.add((min(a, b), max(a, b)))
-        if self.has_edge(a, b):
-            return
-        crossed, left, right, through = self._crossed_by(a, b)
-        if through >= 0:
-            self._constrained.discard((min(a, b), max(a, b)))
-            self.insert_constraint(a, through)
-            self.insert_constraint(through, b)
-            return
-        # The segment is not a boundary yet, so everything it passes through is
-        # one region; carrying that label onto the triangles that replace them
-        # saves deriving every region in the mesh again afterwards.
-        winding = self._winding.get(crossed[0]) if crossed else None
-        for t in crossed:
-            self._winding.pop(t, None)
-            self._remove_triangle(t)
-        self._fill_pseudo_polygon(a, b, left, winding)
-        self._fill_pseudo_polygon(b, a, right[::-1], winding)
+        # A work list rather than recursion: a constraint that runs through a
+        # thousand collinear vertices is split a thousand times, and one Python
+        # frame per split puts a ceiling on the geometry that has nothing to do
+        # with the geometry.
+        work = [(a, b)]
+        while work:
+            u, v = work.pop()
+            self._constrained.add((min(u, v), max(u, v)))
+            if self.has_edge(u, v):
+                continue
+            crossed, left, right, through = self._crossed_by(u, v)
+            if through >= 0:
+                self._constrained.discard((min(u, v), max(u, v)))
+                work.append((u, through))
+                work.append((through, v))
+                continue
+            # The segment is not a boundary yet, so everything it passes through
+            # is one region; carrying that label onto the triangles that replace
+            # them saves deriving every region in the mesh again afterwards.
+            winding = self._winding.get(crossed[0]) if crossed else None
+            for t in crossed:
+                self._remove_triangle(t)
+            self._fill_pseudo_polygon(u, v, left, winding)
+            self._fill_pseudo_polygon(v, u, right[::-1], winding)
 
     def _crossed_by(self, a: int, b: int):
         """Walk the segment ``a``--``b``, collecting what it passes through.
@@ -781,8 +806,6 @@ class Triangulation:
         if orient2d(self._pts[a], self._pts[apex], self._pts[v]) <= 0:
             return False
         winding = self._winding.get(t, self._winding.get(n))
-        self._winding.pop(t, None)
-        self._winding.pop(n, None)
         self._remove_triangle(t)
         self._remove_triangle(n)
         first = self._add_triangle(a, u, apex)
@@ -861,6 +884,7 @@ class Triangulation:
         for (a, b), delta in zip(graph.edges, graph.winding, strict=True):
             key = (int(min(a, b)), int(max(a, b)))
             self._segment_delta[key] = int(delta) if key == (int(a), int(b)) else -int(delta)
+        self._invalidate_segments()
         for a, b in graph.edges:
             self.insert_constraint(int(a), int(b))
         self.restore_delaunay()
@@ -887,6 +911,7 @@ class Triangulation:
                 self._segment_delta[(lo, hi)] = (
                     int(delta) if (lo, hi) == (int(a), int(b)) else -int(delta)
                 )
+            self._invalidate_segments()
         self._label_regions()
         return self._selected()
 
@@ -959,18 +984,18 @@ class Triangulation:
         """
         if kept is None:
             kept = self.classify(graph, self._rule)
+        elif graph is not None:
+            self.classify(graph, self._rule)
         if min_angle is None and max_area is None:
             return kept
-        if graph is not None:
-            self.classify(graph, self._rule)
 
-        cosine_limit = None
+        angle_limit = None
         if min_angle is not None:
             if not 0.0 < min_angle < 60.0:
                 raise ValueError(
                     'min_angle must be between 0 and 60 degrees, got %r' % (min_angle,)
                 )
-            cosine_limit = float(min_angle)
+            angle_limit = float(min_angle)
 
         report = _RefinementReport()
         skip: set[tuple[int, int, int]] = set()
@@ -980,9 +1005,9 @@ class Triangulation:
         # triangle to find the worst -- thousands of times over -- costs more
         # than the refinement itself. New triangles go on the list as they are
         # made; anything that has since been deleted or fixed is skipped.
-        pending: list[int] = self._failing_triangles(cosine_limit, max_area, skip)
+        pending: list[int] = self._failing_triangles(angle_limit, max_area, skip)
         while budget > 0:
-            target = self._next_failing(pending, cosine_limit, max_area, skip)
+            target = self._next_failing(pending, angle_limit, max_area, skip)
             if target is None:
                 break
             centre = self._circumcentre(target)
@@ -1111,9 +1136,10 @@ class Triangulation:
         Splitting such a segment before inserting the point is what keeps a
         refinement from crowding vertices against an outline it must preserve.
 
-        Every segment is tested at once. Refinement asks this of every candidate
-        it places, against every segment there is, so a Python loop here is the
-        single most expensive thing in a refinement.
+        Every segment is tested at once, against arrays that are rebuilt only
+        when the segment set changes. Refinement asks this of every candidate it
+        places, so a Python loop over the segments here -- or anything that
+        touched every *vertex* -- would cost more than the refinement.
         """
         keys, ends = self._segment_arrays()
         if not len(keys):
@@ -1126,15 +1152,28 @@ class Triangulation:
         a, b = keys[inside[0]]
         return int(a), int(b)
 
+    def _invalidate_segments(self) -> None:
+        """Forget the cached segment arrays. Called wherever the set changes."""
+        self._segment_cache = None
+
     def _segment_arrays(self) -> tuple[np.ndarray, np.ndarray]:
-        """The boundary segments as arrays, rebuilt when the set changes."""
-        stamp = (len(self._segment_delta), len(self._pts))
-        if self._segment_cache is not None and self._segment_cache[0] == stamp:
-            return self._segment_cache[1], self._segment_cache[2]
+        """The boundary segments as arrays: their vertex pairs and their ends.
+
+        The ends are gathered from the vertex list directly rather than through
+        :attr:`points`, which would rebuild an array of every vertex in the mesh
+        -- and refinement invalidates that array once per point it inserts, so
+        going through it here is what makes refinement quadratic.
+        """
+        if self._segment_cache is not None:
+            return self._segment_cache
         keys = np.array(list(self._segment_delta), dtype=np.int32).reshape(-1, 2)
-        points = self.points
-        ends = points[keys] if len(keys) else np.zeros((0, 2, 2), dtype=np.float64)
-        self._segment_cache = (stamp, keys, ends)
+        if len(keys):
+            ends = np.array(
+                [(self._pts[a], self._pts[b]) for a, b in keys.tolist()], dtype=np.float64
+            )
+        else:
+            ends = np.zeros((0, 2, 2), dtype=np.float64)
+        self._segment_cache = (keys, ends)
         return keys, ends
 
     def _split_segment(self, a: int, b: int) -> bool:
@@ -1142,29 +1181,32 @@ class Triangulation:
         delta = self._segment_delta.pop((a, b), None)
         if delta is None:  # pragma: no cover - caller supplies a live key
             return False
+        self._invalidate_segments()
         midpoint = (self._pts[a] + self._pts[b]) * 0.5
-        watch = len(self._created)
+        outer, self._created = self._created, []
         self._constrained.discard((a, b))
         v = len(self._pts)
         self._pts.append(midpoint)
         self._points_cache = None
         if not self._insert_point(v):  # pragma: no cover - midpoint is inside
+            self._created = outer
             self._pts.pop()
             self._points_cache = None
             self._segment_delta[(a, b)] = delta
             self._constrained.add((a, b))
             return False
         made = list(self._last_inserted)
-        self._last_split: list[int] = []
         for lo, hi in ((min(a, v), max(a, v)), (min(v, b), max(v, b))):
             oriented = delta if (lo, hi) in ((a, v), (v, b)) else -delta
             self._segment_delta[(lo, hi)] = oriented
+            self._invalidate_segments()
             self.insert_constraint(lo, hi)
         self.restore_delaunay(made)
         # No global pass: the triangles that replaced the old ones carry the
         # winding they replaced, and halving a segment leaves every region's
         # winding exactly as it was.
-        self._last_split = self._created[watch:]
+        self._last_split = self._created or []
+        self._created = outer
         return True
 
     def _insert_refinement_point(self, centre: np.ndarray) -> bool:

@@ -8,15 +8,24 @@ is cheap once the geometry is arrays, and awkward once it is triangles on a GPU.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from opengl_extrusions.mesh import Mesh, Primitive
 
-__all__ = ['generate_tangents', 'with_tangents', 'levels_of_detail', 'to_collider']
+__all__ = ['generate_tangents', 'with_tangents', 'levels_of_detail', 'to_collider', 'Collider']
 
 _TINY = 1e-12
+
+#: The parameters :func:`levels_of_detail` knows how to coarsen, and which way
+#: each one goes: a count divides by the factor, a tolerance multiplies by it.
+_LOD_PARAMETERS = {
+    'sides': ('divide', 3),
+    'section_sides': ('divide', 3),
+    'tolerance': ('multiply', 0),
+}
 
 
 def generate_tangents(
@@ -53,9 +62,21 @@ def generate_tangents(
         )
         tangent = (edge1 * duv2[:, 1:2] - edge2 * duv1[:, 1:2]) * scale[:, None]
         bitangent = (edge2 * duv1[:, 0:1] - edge1 * duv2[:, 0:1]) * scale[:, None]
-        for corner in range(3):
-            np.add.at(accumulated, tris[:, corner], tangent)
-            np.add.at(bitangents, tris[:, corner], bitangent)
+        # Every corner of a triangle collects that triangle's contribution, so
+        # the three corners are one flat list of vertex indices against one
+        # repeated list of weights. `np.bincount` sums a column of those in one
+        # pass; `np.add.at` is unbuffered and costs several times as much for
+        # the same answer.
+        corners = tris.ravel()
+        per_corner_tangent = np.repeat(tangent, 3, axis=0)
+        per_corner_bitangent = np.repeat(bitangent, 3, axis=0)
+        for axis in range(3):
+            accumulated[:, axis] = np.bincount(
+                corners, weights=per_corner_tangent[:, axis], minlength=len(points)
+            )[: len(points)]
+            bitangents[:, axis] = np.bincount(
+                corners, weights=per_corner_bitangent[:, axis], minlength=len(points)
+            )[: len(points)]
 
     # Gram-Schmidt: take out the part along the normal, so the tangent lies in
     # the surface even where the accumulated one did not.
@@ -111,33 +132,43 @@ def with_tangents(mesh: Mesh) -> Mesh:
 def levels_of_detail(generator, levels: int = 3, factor: float = 2.0, **parameters) -> list[Mesh]:
     """Build the same shape several times, each coarser than the last.
 
-    ``generator`` is any function here that takes ``sides`` and/or ``tolerance``;
-    each level divides ``sides`` by ``factor`` and multiplies ``tolerance`` by it,
-    so the silhouette degrades smoothly rather than in one jump. The first entry
-    is the parameters exactly as given.
+    ``generator`` is any function here that takes one of the parameters that
+    describe how finely the shape is divided -- ``sides``, ``section_sides`` or
+    ``tolerance``. Each level divides a count by ``factor`` and multiplies a
+    tolerance by it, so the silhouette degrades smoothly rather than in one
+    jump. The first entry is the parameters exactly as given.
 
         >>> from opengl_extrusions import polycylinder
         >>> from opengl_extrusions.tangents import levels_of_detail
         >>> steps = levels_of_detail(polycylinder, levels=3, sides=32,
         ...                          path=[(0, 0, 0), (0, 0, 1)])
-        >>> [m.triangle_count for m in steps]      # doctest: +SKIP
-        [128, 64, 32]
+        >>> [m.triangle_count for m in steps]
+        [124, 60, 28]
 
-    :raises ValueError: for fewer than one level, or a factor not above one.
+    :raises ValueError: for fewer than one level, a factor not above one, or
+        parameters holding none of the ones that can be coarsened -- which would
+        otherwise return the same mesh several times over and look like a
+        working level-of-detail chain.
     """
     if levels < 1:
         raise ValueError('levels must be at least 1, got %r' % (levels,))
     if factor <= 1.0:
         raise ValueError('factor must be greater than 1, got %r' % (factor,))
+    coarsenable = sorted(set(parameters) & set(_LOD_PARAMETERS))
+    if levels > 1 and not coarsenable:
+        raise ValueError(
+            'nothing here can be made coarser: pass one of %s, or ask for one level'
+            % (', '.join(sorted(_LOD_PARAMETERS)),)
+        )
     out: list[Mesh] = []
     for step in range(levels):
         current: dict[str, Any] = dict(parameters)
-        if 'sides' in current:
-            current['sides'] = max(3, int(round(current['sides'] / factor**step)))
-        if 'tolerance' in current:
-            current['tolerance'] = current['tolerance'] * factor**step
-        if 'sections' in current:
-            current['sections'] = max(2, int(round(current['sections'] / factor**step)))
+        for name in coarsenable:
+            how, floor = _LOD_PARAMETERS[name]
+            if how == 'divide':
+                current[name] = max(floor, int(round(current[name] / factor**step)))
+            else:
+                current[name] = current[name] * factor**step
         mesh = generator(**current)
         for p in mesh.primitives:
             p.extras['lod'] = step
@@ -145,39 +176,61 @@ def levels_of_detail(generator, levels: int = 3, factor: float = 2.0, **paramete
     return out
 
 
-def to_collider(mesh: Mesh, tolerance: float = 0.0) -> dict[str, Any]:
-    """The mesh as a physics engine wants it: welded positions and triangles.
+@dataclass(frozen=True)
+class Collider:
+    """A mesh as a physics engine wants it: one welded surface, as arrays.
 
-    Returns a dictionary with ``positions`` ``(V, 3)`` float32, ``indices``
-    ``(T, 3)`` uint32, ``watertight`` and ``volume``. The vertices are welded on
-    position alone -- a collider has no use for the split vertices that shading
-    needs, and a solver given them would find gaps that are not there.
+    ``positions`` is ``(V, 3)`` float32 and ``indices`` is ``(T, 3)`` uint32 --
+    the two things a solver needs to build a mesh shape from.
 
     ``watertight`` is the one to check before treating the result as a solid: a
     surface with a rim can still be collided against as a sheet, but it does not
     enclose anything, and asking a solver to sink an object into it will not go
-    well.
+    well. ``volume`` is what it encloses when it does, and is negative for a
+    surface that is inside out.
     """
-    merged = mesh.merged().welded(tolerance)
-    if not merged.primitives:
-        return {
-            'positions': np.zeros((0, 3), np.float32),
-            'indices': np.zeros((0, 3), np.uint32),
-            'watertight': False,
-            'volume': 0.0,
-        }
+
+    positions: np.ndarray
+    indices: np.ndarray
+    watertight: bool
+    volume: float
+
+    @property
+    def vertex_count(self) -> int:
+        return len(self.positions)
+
+    @property
+    def triangle_count(self) -> int:
+        return len(self.indices)
+
+
+def to_collider(mesh: Mesh, tolerance: float = 0.0) -> Collider:
+    """The mesh welded down to the one surface a physics engine can use.
+
+    The vertices are welded on position alone -- a collider has no use for the
+    split vertices that shading needs, and a solver given them would find gaps
+    that are not there. Everything else is dropped for the same reason.
+    """
     positions: list[np.ndarray] = []
     triangles: list[np.ndarray] = []
     offset = 0
-    for p in merged.primitives:
+    for p in mesh.primitives:
+        if not p.vertex_count:
+            continue
         positions.append(p.positions)
         triangles.append(p.triangles.astype(np.uint32) + offset)
         offset += p.vertex_count
-    combined = Primitive({'POSITION': np.concatenate(positions)}, np.concatenate(triangles).ravel())
-    solid = combined.welded(tolerance)
-    return {
-        'positions': solid.positions,
-        'indices': solid.triangles.astype(np.uint32),
-        'watertight': solid.is_watertight(),
-        'volume': float(solid.signed_volume()),
-    }
+    if not positions:
+        return Collider(np.zeros((0, 3), np.float32), np.zeros((0, 3), np.uint32), False, 0.0)
+    # One weld, on positions alone. Welding the render mesh first would compare
+    # normals and texture coordinates as well, which is the opposite of what a
+    # collider wants and costs a pass to reach the same place.
+    solid = Primitive(
+        {'POSITION': np.concatenate(positions)}, np.concatenate(triangles).ravel()
+    ).welded(tolerance)
+    return Collider(
+        positions=solid.positions,
+        indices=solid.triangles.astype(np.uint32),
+        watertight=solid.is_watertight(),
+        volume=float(solid.signed_volume()),
+    )

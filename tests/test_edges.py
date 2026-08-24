@@ -314,7 +314,7 @@ class TestGeneratorEdges:
 
     def test_a_collider_of_a_tube_reports_its_volume(self):
         collider = to_collider(polycylinder([(0, 0, 0), (0, 0, 1)], 0.5, sides=32))
-        assert collider['volume'] > 0
+        assert collider.volume > 0
 
     def test_a_bspline_can_close_on_itself(self):
         control = np.array([(0, 0, 0), (1, 1, 0), (2, 0, 0), (1, -1, 0)], float)

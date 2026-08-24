@@ -314,39 +314,50 @@ class TestLevelsOfDetail:
 
     def test_bad_arguments_are_refused(self):
         with pytest.raises(ValueError):
-            levels_of_detail(polycylinder, levels=0, path=[(0, 0, 0), (0, 0, 1)])
+            levels_of_detail(polycylinder, levels=0, sides=8, path=[(0, 0, 0), (0, 0, 1)])
         with pytest.raises(ValueError):
-            levels_of_detail(polycylinder, factor=1.0, path=[(0, 0, 0), (0, 0, 1)])
+            levels_of_detail(polycylinder, factor=1.0, sides=8, path=[(0, 0, 0), (0, 0, 1)])
+
+    def test_asking_for_levels_with_nothing_to_coarsen_says_so(self):
+        """Otherwise it returns the same mesh N times over, which looks exactly
+        like a working level-of-detail chain and is not one."""
+        with pytest.raises(ValueError) as caught:
+            levels_of_detail(polycylinder, levels=3, path=[(0, 0, 0), (0, 0, 1)])
+        assert 'sides' in str(caught.value)
+
+    def test_one_level_needs_nothing_to_coarsen(self):
+        steps = levels_of_detail(polycylinder, levels=1, path=[(0, 0, 0), (0, 0, 1)])
+        assert len(steps) == 1
 
 
 class TestCollider:
     def test_a_closed_extrusion_makes_a_solid_collider(self):
         collider = to_collider(polycylinder([(0, 0, 0), (0, 0, 2)], 1.0, sides=64))
-        assert collider['watertight']
-        assert collider['volume'] == pytest.approx(np.pi * 2, rel=1e-2)
-        assert collider['positions'].dtype == np.float32
-        assert collider['indices'].dtype == np.uint32
+        assert collider.watertight
+        assert collider.volume == pytest.approx(np.pi * 2, rel=1e-2)
+        assert collider.positions.dtype == np.float32
+        assert collider.indices.dtype == np.uint32
 
     def test_an_open_extrusion_says_it_is_not_solid(self):
         collider = to_collider(polycylinder([(0, 0, 0), (0, 0, 2)], 1.0, caps=False))
-        assert not collider['watertight']
+        assert not collider.watertight
 
     def test_the_collider_has_fewer_vertices_than_the_render_mesh(self):
         mesh = polycylinder([(0, 0, 0), (0, 0, 2)], 1.0, sides=32)
         collider = to_collider(mesh)
-        assert len(collider['positions']) < mesh.vertex_count
+        assert len(collider.positions) < mesh.vertex_count
 
     def test_an_empty_mesh_makes_an_empty_collider(self):
         from opengl_extrusions.mesh import Mesh
 
         collider = to_collider(Mesh([]))
-        assert len(collider['positions']) == 0
-        assert not collider['watertight']
+        assert len(collider.positions) == 0
+        assert not collider.watertight
 
     def test_a_swept_spline_collides(self):
         from opengl_extrusions import catmull_rom
 
         path = catmull_rom([(0, 0, 0), (2, 1, 0), (4, 0, 1)], tolerance=1e-2)
         collider = to_collider(extrude(circle(0.3, 12), path, frames='rmf'))
-        assert collider['watertight']
-        assert collider['volume'] > 0
+        assert collider.watertight
+        assert collider.volume > 0

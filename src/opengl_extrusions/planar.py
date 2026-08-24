@@ -92,6 +92,14 @@ class PSLG:
     #: for a vertex this pass invented -- an intersection the input implied but
     #: did not name. A caller carrying per-vertex data of its own follows this.
     source: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int32))
+    #: Whether splitting ran to completion, so that no two edges here cross
+    #: anywhere but at an endpoint. ``False`` means the pass hit
+    #: :data:`MAX_SPLIT_PASSES` with work still to do and this graph may still
+    #: hold a crossing -- which is the one thing the module exists to prevent,
+    #: and which the triangulator's invariants assume is gone. Ordinary input
+    #: settles in a pass or two; a caller who cannot accept an imperfect graph
+    #: should check this rather than assume it.
+    settled: bool = True
 
     def __len__(self) -> int:
         return len(self.edges)
@@ -305,21 +313,50 @@ def _drop_collinear(points: list[np.ndarray], where: list[int]):
     """Remove points that add nothing to the outline, repeatedly.
 
     One pass is not enough: removing a point can leave its neighbours collinear
-    with *their* neighbours, which is how a spike collapses.
+    with *their* neighbours, which is how a spike collapses. So the ring is held
+    as links rather than as a list, and removing a point puts its two neighbours
+    back on the work list -- which are the only two whose answer can have
+    changed. Deleting from a list and rescanning from the start instead makes
+    simplifying an n-point contour cost n squared, and this is offered as an
+    option on contours of any size.
     """
-    kept, kept_where = list(points), list(where)
-    changed = True
-    while changed and len(kept) > 3:
-        changed = False
-        for i in range(len(kept)):
-            if len(kept) <= 3:
-                break
-            before, here, after = kept[i - 1], kept[i], kept[(i + 1) % len(kept)]
-            if orient2d(before, here, after) == 0:
-                del kept[i]
-                del kept_where[i]
-                changed = True
-                break
+    count = len(points)
+    if count <= 3:
+        return list(points), list(where)
+    previous = [(i - 1) % count for i in range(count)]
+    following = [(i + 1) % count for i in range(count)]
+    alive = [True] * count
+    queued = [True] * count
+    pending = list(range(count))
+    remaining = count
+
+    while pending and remaining > 3:
+        i = pending.pop()
+        queued[i] = False
+        if not alive[i]:
+            continue
+        before, after = previous[i], following[i]
+        if orient2d(points[before], points[i], points[after]) != 0:
+            continue
+        alive[i] = False
+        remaining -= 1
+        following[before] = after
+        previous[after] = before
+        for neighbour in (before, after):
+            if alive[neighbour] and not queued[neighbour]:
+                queued[neighbour] = True
+                pending.append(neighbour)
+
+    start = next(i for i in range(count) if alive[i])
+    kept: list[np.ndarray] = []
+    kept_where: list[int] = []
+    i = start
+    while True:
+        kept.append(points[i])
+        kept_where.append(where[i])
+        i = following[i]
+        if i == start:
+            break
     return kept, kept_where
 
 
@@ -453,20 +490,25 @@ def build_pslg(contours, tolerance: float | None = None, remove_collinear: bool 
             if a != b:
                 directed.append((a, b))
 
-    directed = _split_at_intersections(directed, merger)
-    return _collapse(directed, merger.array(), merger.source_array())
+    directed, settled = _split_at_intersections(directed, merger)
+    return _collapse(directed, merger.array(), merger.source_array(), settled)
 
 
 def _split_at_intersections(
     directed: list[tuple[int, int]], merger: _VertexMerger
-) -> list[tuple[int, int]]:
-    """Subdivide segments until no two of them meet anywhere but at endpoints."""
+) -> tuple[list[tuple[int, int]], bool]:
+    """Subdivide segments until no two of them meet anywhere but at endpoints.
+
+    Returns the segments and whether the work finished. It finishing is the
+    property the graph is *for*, so the answer travels with the graph rather
+    than being dropped here.
+    """
     for _ in range(MAX_SPLIT_PASSES):
         splits = _find_splits(directed, merger)
         if not splits:
-            break
+            return directed, True
         directed = _apply_splits(directed, splits, merger)
-    return directed
+    return directed, not _find_splits(directed, merger)
 
 
 def _find_splits(directed: list[tuple[int, int]], merger: _VertexMerger) -> dict:
@@ -546,7 +588,12 @@ def _apply_splits(
     return out
 
 
-def _collapse(directed: list[tuple[int, int]], points: np.ndarray, source: np.ndarray) -> PSLG:
+def _collapse(
+    directed: list[tuple[int, int]],
+    points: np.ndarray,
+    source: np.ndarray,
+    settled: bool = True,
+) -> PSLG:
     """Merge coincident edges, summing their winding contributions."""
     totals: dict = {}
     for a, b in directed:
@@ -558,10 +605,16 @@ def _collapse(directed: list[tuple[int, int]], points: np.ndarray, source: np.nd
     kept = [(k, v) for k, v in totals.items() if v != 0]
     kept.sort()
     if not kept:
-        return PSLG(points, np.zeros((0, 2), dtype=np.int32), np.zeros(0, dtype=np.int32), source)
+        return PSLG(
+            points,
+            np.zeros((0, 2), dtype=np.int32),
+            np.zeros(0, dtype=np.int32),
+            source,
+            settled,
+        )
     edges = np.array([k for k, _ in kept], dtype=np.int32)
     winding = np.array([v for _, v in kept], dtype=np.int32)
-    return PSLG(points, edges, winding, source)
+    return PSLG(points, edges, winding, source, settled)
 
 
 def winding_at(graph: PSLG, point: Point) -> int:
