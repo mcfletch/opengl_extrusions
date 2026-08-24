@@ -35,7 +35,7 @@ import numpy as np
 
 from opengl_extrusions.types import Points, Vector
 
-__all__ = ['PathFrames', 'path_frames', 'FrameError', 'FRAME_METHODS']
+__all__ = ['PathFrames', 'path_frames', 'clean_path', 'FrameError', 'FRAME_METHODS']
 
 #: How the rotation about the path is chosen. See the module docstring.
 FRAME_METHODS = ('up', 'rmf')
@@ -166,7 +166,7 @@ def path_frames(
     return PathFrames(pts, right, frame_up, forward, incoming, outgoing, arc_length, closed)
 
 
-def _directions(pts: np.ndarray, closed: bool):
+def _directions(pts: np.ndarray, closed: bool) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-point incoming direction, outgoing direction, and their average."""
     segments = _normalise(np.diff(pts, axis=0))
     if closed:
@@ -186,7 +186,7 @@ def _directions(pts: np.ndarray, closed: bool):
     return incoming, outgoing, forward
 
 
-def _reference_frame(forward: np.ndarray, reference: np.ndarray):
+def _reference_frame(forward: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Frames whose ``up`` stays as near the reference direction as it can."""
     reference = reference / max(float(np.linalg.norm(reference)), _TINY)
     projected = reference - forward * np.einsum('ij,j->i', forward, reference)[:, None]
@@ -212,7 +212,9 @@ def _reference_frame(forward: np.ndarray, reference: np.ndarray):
     return _normalise(right), frame_up
 
 
-def _rotation_minimizing_frame(forward: np.ndarray, seed: np.ndarray, initial_right: Vector | None):
+def _rotation_minimizing_frame(
+    forward: np.ndarray, seed: np.ndarray, initial_right: Vector | None
+) -> tuple[np.ndarray, np.ndarray]:
     """Carry one frame along the path by the smallest rotation at each step.
 
     The double-reflection construction: reflecting the previous frame through the
@@ -262,7 +264,7 @@ def _double_reflect(vector: np.ndarray, from_dir: np.ndarray, to_dir: np.ndarray
 
 def _rotate_to_start(
     right: np.ndarray, frame_up: np.ndarray, forward: np.ndarray, desired: np.ndarray
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """Spin every frame about its forward axis so the first matches ``desired``."""
     desired = desired - forward[0] * float(np.dot(desired, forward[0]))
     length = float(np.linalg.norm(desired))

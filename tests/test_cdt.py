@@ -6,6 +6,8 @@ consistent neighbours, no overlaps, no lost area -- under inputs chosen to be
 awkward.
 """
 
+import contextlib
+
 import numpy as np
 import pytest
 
@@ -158,10 +160,8 @@ class TestConstraints:
         # Diagonals of a 12-gon cross each other, so they cannot all be inserted;
         # each insertion is still expected to leave a valid mesh.
         for a, b in pairs:
-            try:
+            with contextlib.suppress(TriangulationError):
                 t.insert_constraint(a, b)
-            except TriangulationError:
-                pass
             t.check_consistency()
 
     def test_area_is_conserved_by_constraint_insertion(self):

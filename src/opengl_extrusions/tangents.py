@@ -8,6 +8,7 @@ is cheap once the geometry is arrays, and awkward once it is triangles on a GPU.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -129,7 +130,12 @@ def with_tangents(mesh: Mesh) -> Mesh:
     return Mesh(out, mesh.name)
 
 
-def levels_of_detail(generator, levels: int = 3, factor: float = 2.0, **parameters) -> list[Mesh]:
+def levels_of_detail(
+    generator: Callable[..., Mesh],
+    levels: int = 3,
+    factor: float = 2.0,
+    **parameters: Any,
+) -> list[Mesh]:
     """Build the same shape several times, each coarser than the last.
 
     ``generator`` is any function here that takes one of the parameters that
@@ -166,7 +172,7 @@ def levels_of_detail(generator, levels: int = 3, factor: float = 2.0, **paramete
         for name in coarsenable:
             how, floor = _LOD_PARAMETERS[name]
             if how == 'divide':
-                current[name] = max(floor, int(round(current[name] / factor**step)))
+                current[name] = max(floor, round(current[name] / factor**step))
             else:
                 current[name] = current[name] * factor**step
         mesh = generator(**current)

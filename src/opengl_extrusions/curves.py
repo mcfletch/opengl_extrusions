@@ -14,6 +14,8 @@ straight should not pay for the hairpins over the whole mile.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 
 from opengl_extrusions.types import Points
@@ -60,7 +62,7 @@ def helix(
     if sides < 1:
         raise CurveError('sides must be at least 1, got %r' % (sides,))
     turns = abs(float(sweep_angle)) / (2 * np.pi)
-    steps = max(int(round(turns * sides)), 1)
+    steps = max(round(turns * sides), 1)
     angles = start_angle + np.linspace(0.0, float(sweep_angle), steps + 1)
     fraction = (angles - start_angle) / (2 * np.pi)
     radius = start_radius + delta_radius * fraction
@@ -155,11 +157,11 @@ def bspline(
         u = knots[degree + span] + t * (knots[degree + span + 1] - knots[degree + span])
         return _de_boor(u, degree + span, degree, knots, points)
 
-    return _sample_spans(evaluate, len(points) - degree, samples, tolerance, False)
+    return _sample_spans(evaluate, len(points) - degree, samples, tolerance, closed)
 
 
 def sample_adaptive(
-    evaluate,
+    evaluate: Callable[[float], Points],
     start: float = 0.0,
     stop: float = 1.0,
     tolerance: float = 1e-3,
@@ -181,7 +183,25 @@ def sample_adaptive(
     return np.asarray([point for _, point in out], dtype=np.float64)
 
 
-def _bisect(evaluate, low, high, first, last, tolerance, depth, out) -> None:
+def _bind(evaluate: Callable[[int, float], np.ndarray], span: int) -> Callable[[float], np.ndarray]:
+    """One span of a piecewise curve, as a function of its own parameter alone."""
+
+    def at(t: float) -> np.ndarray:
+        return evaluate(span, t)
+
+    return at
+
+
+def _bisect(
+    evaluate: Callable[[float], Points],
+    low: float,
+    high: float,
+    first: np.ndarray,
+    last: np.ndarray,
+    tolerance: float,
+    depth: int,
+    out: list[tuple[float, np.ndarray]],
+) -> None:
     if depth <= 0:
         return
     middle = 0.5 * (low + high)
@@ -204,11 +224,17 @@ def arc_lengths(points: Points) -> np.ndarray:
 
 
 def resample_uniform(points: Points, spacing: float) -> np.ndarray:
-    """Re-space a polyline so its points are ``spacing`` apart along it.
+    """Re-space a polyline evenly along itself, at about ``spacing`` apart.
 
     The shape is unchanged; only where the samples sit moves. Useful before
     texturing by index, or for a sweep whose rings should be evenly spread
     however the path was authored.
+
+    The samples are equally spaced and the first and last land on the polyline's
+    own ends, which together mean the interval is the length divided by a whole
+    number: ``total / round(total / spacing)``, the nearest spacing to the one
+    asked for that divides the length. Ask for a spacing that does divide it,
+    or accept the rounding.
     """
     pts = _as_points(points)
     if spacing <= 0:
@@ -217,7 +243,7 @@ def resample_uniform(points: Points, spacing: float) -> np.ndarray:
     total = float(lengths[-1])
     if total <= _TINY:
         return pts[:1]
-    count = max(int(round(total / spacing)), 1)
+    count = max(round(total / spacing), 1)
     wanted = np.linspace(0.0, total, count + 1)
     return np.column_stack([np.interp(wanted, lengths, pts[:, i]) for i in range(pts.shape[1])])
 
@@ -244,13 +270,17 @@ def _pad_for_catmull(control: np.ndarray, closed: bool) -> np.ndarray:
 
 
 def _sample_spans(
-    evaluate, spans: int, samples: int | None, tolerance: float | None, closed: bool
+    evaluate: Callable[[int, float], np.ndarray],
+    spans: int,
+    samples: int | None,
+    tolerance: float | None,
+    closed: bool,
 ) -> np.ndarray:
     """Walk every span of a piecewise curve, adaptively or at a fixed rate."""
     pieces = []
     for span in range(spans):
         if tolerance is not None:
-            piece = sample_adaptive(lambda t, s=span: evaluate(s, t), 0.0, 1.0, tolerance)
+            piece = sample_adaptive(_bind(evaluate, span), 0.0, 1.0, tolerance)
         else:
             count = int(samples) if samples else 12
             if count < 2:

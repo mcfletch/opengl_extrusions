@@ -18,7 +18,7 @@ UNIT_SQUARE = [(1, 1), (1, -1), (-1, -1), (-1, 1), (1, 1)]
 class TestSpineFrames:
     def test_a_straight_spine_gets_a_consistent_plane(self):
         spine = np.array([(0, 0, 0), (0, 1, 0), (0, 2, 0)], float)
-        x, y, z = spine_frames(spine, closed=False)
+        x, y, _z = spine_frames(spine, closed=False)
         assert np.allclose(np.linalg.norm(x, axis=1), 1.0)
         assert np.allclose(y, [(0, 1, 0)] * 3)
         assert np.allclose(np.einsum('ij,ij->i', x, y), 0, atol=1e-9)
@@ -40,7 +40,7 @@ class TestSpineFrames:
     def test_a_closed_spine_wraps(self):
         angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
         spine = np.column_stack([np.cos(angles), np.zeros(8), np.sin(angles)])
-        x, y, z = spine_frames(spine, closed=True)
+        _x, y, _z = spine_frames(spine, closed=True)
         assert np.allclose(np.linalg.norm(y, axis=1), 1.0)
 
 
@@ -73,7 +73,7 @@ class TestVRML97Extrusion:
 
     def test_a_single_scale_applies_everywhere(self):
         mesh = vrml97_extrusion(scale=(2.0, 3.0))
-        low, high = mesh.bounds
+        _low, high = mesh.bounds
         assert high[0] == pytest.approx(2.0, abs=1e-6)
         assert high[2] == pytest.approx(3.0, abs=1e-6)
 

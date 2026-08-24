@@ -120,6 +120,12 @@ exclude = ["*.md"]
 python_version = "3.12"
 warn_unused_ignores = true
 ignore_missing_imports = true
+# The package ships `py.typed`, which promises downstream checkers that its
+# signatures mean something. Without these, mypy skips the bodies of untyped
+# functions entirely -- so it reported success while every public entry point
+# was unannotated, which misleads a user rather than merely under-serving them.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
 # NumPy's shipped stubs type array arithmetic as ``Any``, so ``warn_return_any``
 # fires on nearly every function here that returns an array -- burying the real
 # type errors it would otherwise find. Every other check stays on.

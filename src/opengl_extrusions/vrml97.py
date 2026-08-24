@@ -33,6 +33,7 @@ from opengl_extrusions.mesh import Mesh, Primitive
 from opengl_extrusions.planar import polygon_orientation
 from opengl_extrusions.sweep import Station, build_from_stations
 from opengl_extrusions.tessellate import tessellate
+from opengl_extrusions.types import Points
 
 __all__ = ['vrml97_extrusion', 'spine_frames']
 
@@ -43,7 +44,7 @@ DEFAULT_CROSS_SECTION = ((1.0, 1.0), (1.0, -1.0), (-1.0, -1.0), (-1.0, 1.0), (1.
 DEFAULT_SPINE = ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0))
 
 
-def spine_frames(spine: np.ndarray, closed: bool):
+def spine_frames(spine: Points, closed: bool) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The Spine-aligned Cross-section Plane at every spine point.
 
     Returns ``(x_axis, y_axis, z_axis)``, each ``(M, 3)`` and orthonormal. This is
@@ -80,11 +81,11 @@ def spine_frames(spine: np.ndarray, closed: bool):
 
 
 def vrml97_extrusion(
-    cross_section=DEFAULT_CROSS_SECTION,
-    spine=DEFAULT_SPINE,
+    cross_section: Points = DEFAULT_CROSS_SECTION,
+    spine: Points = DEFAULT_SPINE,
     *,
-    scale=None,
-    orientation=None,
+    scale: Points | Sequence[float] | None = None,
+    orientation: Points | Sequence[float] | None = None,
     begin_cap: bool = True,
     end_cap: bool = True,
     ccw: bool = True,
@@ -154,10 +155,15 @@ def vrml97_extrusion(
     if crease_angle < 0:
         raise ValueError('creaseAngle must not be negative, got %r' % (crease_angle,))
 
-    closed_spine = len(path) > 2 and bool(np.allclose(path[0], path[-1]))
+    # "The last point repeats the first" is a claim about the file's own
+    # numbers, so the test is exact. `np.allclose` defaults to a relative
+    # tolerance of 1e-5, which on a model whose coordinates are around a million
+    # welds a ten-unit gap shut and then skips the caps the author asked for.
+    # `sweep._as_contours` makes the analogous decision the same way.
+    closed_spine = len(path) > 2 and bool(np.array_equal(path[0], path[-1]))
     if closed_spine:
         path = path[:-1]
-    closed_section = len(section) > 2 and bool(np.allclose(section[0], section[-1]))
+    closed_section = len(section) > 2 and bool(np.array_equal(section[0], section[-1]))
     if closed_section:
         section = section[:-1]
     if len(section) < 3:
@@ -219,7 +225,6 @@ def vrml97_extrusion(
         handed = polygon_orientation(section) >= 0
         mesh = mesh + _caps(
             section,
-            stations,
             x_axis,
             y_axis,
             z_axis,
@@ -251,26 +256,37 @@ def vrml97_extrusion(
 
 
 def _caps(
-    section,
-    stations,
-    x_axis,
-    y_axis,
-    z_axis,
-    path,
-    scales,
-    rotations,
-    begin_cap,
-    end_cap,
-    ccw,
-    texture,
+    section: np.ndarray,
+    x_axis: np.ndarray,
+    y_axis: np.ndarray,
+    z_axis: np.ndarray,
+    path: np.ndarray,
+    scales: np.ndarray,
+    rotations: np.ndarray,
+    begin_cap: bool,
+    end_cap: bool,
+    ccw: bool,
+    texture: str | None,
     outward: bool = True,
 ) -> Mesh:
     """Flat faces closing the ends, tessellated from the cross-section.
 
-    ``outward`` says whether the swept sides face outward, which depends on the
-    cross-section's winding. The caps follow them, so that a shape whose outline
-    was given the other way round is inside-out as a whole rather than
-    inside-out in patches.
+    Which way a cap faces is the product of three independent choices, so it is
+    written as a product of three signs rather than as a chain of conditions:
+
+    ==========  ===========================================================
+    ``at_end``  the two ends of a sweep face opposite ways along the spine
+    ``ccw``     the field that says which side of the surface is the front
+    ``outward`` whether the swept sides face out, which is decided by the
+                cross-section's own winding -- so a shape whose outline was
+                given the other way round comes out inside-out as a whole,
+                rather than inside-out in patches
+    ==========  ===========================================================
+
+    The same sign settles both halves of "which way it faces": positive keeps
+    the tessellator's counter-clockwise winding and the spine direction, and
+    negative reverses both together -- which is what stops a cull removing the
+    side that was shaded.
     """
     result = tessellate([section], winding='odd')
     if len(result.triangles) == 0:
@@ -285,14 +301,9 @@ def _caps(
         basis_z = -(turn @ z_axis[i])
         scaled = result.points * scales[i]
         positions = path[i] + scaled[:, 0:1] * basis_x + scaled[:, 1:2] * basis_z
-        facing = turn @ y_axis[i]
-        facing = facing if at_end else -facing
-        forward_face = (at_end == bool(ccw)) == bool(outward)
-        triangles = result.triangles if forward_face else result.triangles[:, ::-1]
-        if not ccw:
-            facing = -facing
-        if not outward:
-            facing = -facing
+        sign = (1 if at_end else -1) * (1 if ccw else -1) * (1 if outward else -1)
+        facing = (turn @ y_axis[i]) * sign
+        triangles = result.triangles if sign > 0 else result.triangles[:, ::-1]
         attributes = {'POSITION': positions, 'NORMAL': np.tile(facing, (len(positions), 1))}
         if texture is not None:
             span = np.ptp(result.points, axis=0)
@@ -308,7 +319,13 @@ def _caps(
     return Mesh(primitives)
 
 
-def _broadcast(value, steps: int, width: int, default: Sequence[float], what: str) -> np.ndarray:
+def _broadcast(
+    value: Points | Sequence[float] | None,
+    steps: int,
+    width: int,
+    default: Sequence[float],
+    what: str,
+) -> np.ndarray:
     """VRML's rule: one value applies to every point, or there is one each."""
     if value is None:
         return np.tile(np.asarray(default, dtype=np.float64), (steps, 1))

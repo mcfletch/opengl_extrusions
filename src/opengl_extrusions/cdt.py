@@ -28,9 +28,11 @@ and destroying triangles maintains it by construction.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from math import acos, degrees, sqrt
+from typing import NamedTuple
 
 import numpy as np
 
@@ -92,7 +94,7 @@ def convex_hull(points: np.ndarray) -> np.ndarray:
     if len(order) < 3:
         return np.zeros(0, dtype=np.int32)
 
-    def half(sequence):
+    def half(sequence: Iterable[int]) -> list[int]:
         chain: list[int] = []
         for i in sequence:
             while len(chain) >= 2 and orient2d(pts[chain[-2]], pts[chain[-1]], pts[i]) <= 0:
@@ -106,6 +108,31 @@ def convex_hull(points: np.ndarray) -> np.ndarray:
     if len(hull) < 3:
         return np.zeros(0, dtype=np.int32)
     return np.array(hull, dtype=np.int32)
+
+
+class _Leaving(Enum):
+    """Which of the two ways a constraint can leave the fan around a vertex."""
+
+    #: Straight through another mesh vertex, so the constraint splits there.
+    VERTEX = 'vertex'
+    #: Across the edge opposite the vertex in some triangle.
+    EDGE = 'edge'
+
+
+class _Exit(NamedTuple):
+    """Where the constraint leaves, and what it leaves through.
+
+    ``kind`` says which of ``vertex`` and ``(triangle, corner)`` is meaningful:
+    for :attr:`_Leaving.VERTEX` it is the vertex on the segment, and for
+    :attr:`_Leaving.EDGE` it is the triangle and the corner whose opposite edge
+    the segment crosses. Written as a named tuple rather than as a tagged string
+    so that a reader -- and a type checker -- can see which is which.
+    """
+
+    kind: _Leaving
+    vertex: int = -1
+    triangle: int = -1
+    corner: int = -1
 
 
 @dataclass
@@ -581,7 +608,7 @@ class Triangulation:
             self._fill_pseudo_polygon(u, v, left, winding)
             self._fill_pseudo_polygon(v, u, right[::-1], winding)
 
-    def _crossed_by(self, a: int, b: int):
+    def _crossed_by(self, a: int, b: int) -> tuple[list[int], list[int], list[int], int]:
         """Walk the segment ``a``--``b``, collecting what it passes through.
 
         Returns the triangles crossed, the chain of vertices left of the segment,
@@ -596,10 +623,10 @@ class Triangulation:
                 'no triangle at vertex %d faces vertex %d; the mesh does not '
                 'cover the constraint' % (a, b)
             )
-        if start[0] == 'vertex':
-            return [], [], [], start[1]
-        _, t, i = start
-        verts = self._tri[t]
+        if start.kind is _Leaving.VERTEX:
+            return [], [], [], start.vertex
+        t, i = start.triangle, start.corner
+        verts = self._verts(t)
         # the edge opposite `a` in this triangle is the one the segment enters
         u, v = verts[(i + 1) % 3], verts[(i + 2) % 3]
         crossed = [t]
@@ -671,12 +698,13 @@ class Triangulation:
                 t = n
         return found
 
-    def _triangle_leaving(self, a: int, b: int):
+    def _triangle_leaving(self, a: int, b: int) -> _Exit | None:
         """Where the segment ``a``--``b`` leaves the fan of triangles around ``a``.
 
-        Returns ``('vertex', w)`` when a mesh vertex ``w`` lies on the segment --
-        the constraint has to be split there -- or ``('edge', t, i)`` for the
-        triangle whose opposite edge the segment passes through.
+        Returns an :class:`_Exit` naming a mesh vertex that lies on the segment
+        -- the constraint has to be split there -- or the triangle whose
+        opposite edge the segment passes through. ``None`` when the fan does not
+        face ``b`` at all, which means the mesh does not cover the constraint.
         """
         pa, pb = self._pts[a], self._pts[b]
         for t in self._incident_triangles(a):
@@ -689,11 +717,11 @@ class Triangulation:
                     and orient2d(pa, pb, self._pts[w]) == 0
                     and self._between(pa, self._pts[w], pb)
                 ):
-                    return 'vertex', w
+                    return _Exit(_Leaving.VERTEX, vertex=w)
             du = orient2d(pa, pb, self._pts[u])
             dv = orient2d(pa, pb, self._pts[v])
             if du < 0 and dv > 0:
-                return 'edge', t, i
+                return _Exit(_Leaving.EDGE, triangle=t, corner=i)
         return None
 
     @staticmethod

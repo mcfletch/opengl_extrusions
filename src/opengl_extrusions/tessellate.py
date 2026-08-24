@@ -37,6 +37,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from opengl_extrusions.planar import PSLG
+from opengl_extrusions.types import Contours
 from opengl_extrusions.cdt import WINDING_RULES, Triangulation
 from opengl_extrusions.planar import build_pslg
 
@@ -56,7 +58,7 @@ class Tessellation:
     ``source_index`` is ``(V,)`` int32: for each vertex, its position in the
     concatenated input contours, or ``-1`` for a vertex the tessellator had to
     invent -- a crossing point, or a point added by refinement. A caller carrying
-    its own per-vertex data (a colour, a texture coordinate, a ring identity)
+    its own per-vertex data (a color, a texture coordinate, a ring identity)
     uses this to carry it across.
     """
 
@@ -92,7 +94,7 @@ def _empty() -> Tessellation:
 
 
 def tessellate(
-    contours,
+    contours: Contours,
     winding: str = 'odd',
     method: str = 'cdt',
     tolerance: float | None = None,
@@ -157,7 +159,7 @@ def tessellate(
     return Tessellation(mesh.points, triangles[kept].astype(np.int32), _sources(mesh, graph))
 
 
-def _sources(mesh: Triangulation, graph) -> np.ndarray:
+def _sources(mesh: Triangulation, graph: PSLG) -> np.ndarray:
     """Line the graph's source map up with the mesh's (possibly longer) points.
 
     Refinement appends vertices, and those came from nowhere in the input.

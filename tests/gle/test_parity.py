@@ -22,8 +22,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
 
 gle_capture = pytest.importorskip('gle_capture')
 
-os.environ.setdefault('OPENGLCONTEXT_HIDDEN', '1')
-
 #: The feedback buffer records window coordinates, which are quantised by the
 #: viewport; a captured position is good to about four decimal places at these
 #: scales, and no comparison against one can be tighter than that.

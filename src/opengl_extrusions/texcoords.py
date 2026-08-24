@@ -118,7 +118,3 @@ def generated_uv(
     cosine = np.divide(depth, radius, out=np.zeros_like(radius), where=radius > _TINY)
     v = 1.0 - np.arccos(np.clip(cosine, -1.0, 1.0)) / np.pi
     return np.column_stack([u, v])
-
-
-def unused(value: str | None = None) -> None:  # pragma: no cover
-    """Kept out of the public surface."""

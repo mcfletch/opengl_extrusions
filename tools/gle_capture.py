@@ -218,7 +218,7 @@ def _collect(records, want_colour: bool, want_texture: bool):
     triangles: list[list[int]] = []
     sizes: list[int] = []
     for record in records:
-        vertices = [item for item in record[1:]]
+        vertices = list(record[1:])
         if not vertices:
             continue
         base = len(positions)
@@ -249,7 +249,7 @@ def capture(
     or three times: once for geometry, and twice more under opposed lighting when
     ``normals`` is asked for.
     """
-    with _Context() as (GL, GLE):
+    with _Context() as (GL, _GLE):
         _setup_projection(GL)
         GL.glDisable(GL.GL_LIGHTING)
         mode = GL.GL_3D_COLOR_TEXTURE if texture else GL.GL_3D_COLOR

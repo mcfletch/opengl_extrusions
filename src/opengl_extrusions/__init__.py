@@ -29,7 +29,12 @@ additionally compiled where a compiler was available; see
 
 from __future__ import annotations
 
-from opengl_extrusions.cdt import WINDING_RULES, Triangulation, TriangulationError
+from opengl_extrusions.cdt import (
+    WINDING_RULES,
+    Triangulation,
+    TriangulationError,
+    convex_hull,
+)
 from opengl_extrusions.contours import (
     circle,
     contour_normals,
@@ -48,7 +53,13 @@ from opengl_extrusions.curves import (
     resample_uniform,
     sample_adaptive,
 )
-from opengl_extrusions.frames import FrameError, PathFrames, path_frames
+from opengl_extrusions.frames import (
+    FRAME_METHODS,
+    FrameError,
+    PathFrames,
+    clean_path,
+    path_frames,
+)
 from opengl_extrusions.mesh import Mesh, MeshError, Primitive
 from opengl_extrusions.planar import (
     PSLG,
@@ -76,6 +87,7 @@ from opengl_extrusions.shapes import (
 )
 from opengl_extrusions.sweep import JOIN_STYLES, NORMAL_MODES, SweepError
 from opengl_extrusions.tangents import (
+    Collider,
     generate_tangents,
     levels_of_detail,
     to_collider,
@@ -83,6 +95,7 @@ from opengl_extrusions.tangents import (
 )
 from opengl_extrusions.tessellate import Tessellation, tessellate
 from opengl_extrusions.vrml97 import spine_frames, vrml97_extrusion
+from opengl_extrusions.weld import averaged_normals, smoothing_groups
 
 __version__ = '0.1.0a1'
 
@@ -104,6 +117,9 @@ __all__ = [
     'generate_tangents',
     'levels_of_detail',
     'to_collider',
+    'Collider',
+    'averaged_normals',
+    'smoothing_groups',
     # curves to sweep along
     'helix',
     'catmull_rom',
@@ -135,9 +151,12 @@ __all__ = [
     'SweepError',
     'JOIN_STYLES',
     'NORMAL_MODES',
+    'FRAME_METHODS',
+    'clean_path',
     # the pieces it is built from, useful in their own right
     'Triangulation',
     'TriangulationError',
+    'convex_hull',
     'PSLG',
     'build_pslg',
     'clean_contour',

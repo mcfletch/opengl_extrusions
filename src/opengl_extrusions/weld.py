@@ -41,7 +41,7 @@ def weld_vertices(
 
     :param positions: ``(V, 3)`` vertex positions.
     :param extra: further per-vertex arrays that must also agree before two
-        vertices are merged -- normals, texture coordinates, colours. Two corners
+        vertices are merged -- normals, texture coordinates, colors. Two corners
         at the same place but facing different ways are two vertices, and merging
         them would smooth an edge that should be sharp.
     :param tolerance: distance below which positions count as equal. Zero (the

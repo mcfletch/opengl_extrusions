@@ -305,7 +305,7 @@ class TestNormalModes:
         # Every position at the corner now carries exactly one normal.
         rounded = np.round(p.positions[at_corner], 6)
         _, first, counts = np.unique(rounded, axis=0, return_index=True, return_counts=True)
-        for position, count in zip(rounded[np.sort(first)], counts, strict=False):
+        for position, _count in zip(rounded[np.sort(first)], counts, strict=False):
             same = (np.round(p.positions, 6) == position).all(axis=1)
             assert len(np.unique(np.round(p.normals[same], 5), axis=0)) == 1
 

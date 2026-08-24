@@ -44,6 +44,15 @@ __all__ = [
     'orient2d_many',
     'NonFinitePointError',
     'ACCELERATED',
+    # The error bounds and the two helpers the exact path is built from. They
+    # are shared -- `planar` decides an orientation by the same bound, and both
+    # implementations of the filter must use the same numbers -- so they are
+    # part of the surface rather than private names reached across modules.
+    'UNIT_ROUNDOFF',
+    'ORIENT_BOUND',
+    'INCIRCLE_BOUND',
+    'scaled_ints',
+    'sign',
 ]
 
 #: The compiled filter, when it was built. It answers the same questions the
@@ -69,7 +78,7 @@ ACCELERATED = _native is not None
 
 #: Unit roundoff for IEEE-754 binary64: the largest relative error a single
 #: correctly-rounded operation can introduce.
-_U = 2.0**-53
+UNIT_ROUNDOFF = 2.0**-53
 
 #: Error bound multipliers, as multiples of the unit roundoff, for the floating
 #: point evaluations below. Each is a deliberately loose bound on the accumulated
@@ -79,8 +88,22 @@ _U = 2.0**-53
 #: bounded by 10u, and 16u again leaves margin. Loose bounds only cost speed --
 #: they send more cases down the exact path -- while a bound that is too tight
 #: returns a wrong sign, so they are chosen to err generously.
-_ORIENT_BOUND = 8.0 * _U
-_INCIRCLE_BOUND = 16.0 * _U
+ORIENT_BOUND = 8.0 * UNIT_ROUNDOFF
+INCIRCLE_BOUND = 16.0 * UNIT_ROUNDOFF
+
+# The compiled filter computes the same bounds from the same expression. If the
+# two ever drifted apart, one implementation would settle a sign the other sends
+# down the exact path, and the pair would disagree on inputs near degeneracy --
+# which is exactly what the exact path exists to prevent.
+if _native is not None and (_native.ORIENT_BOUND, _native.INCIRCLE_BOUND) != (
+    ORIENT_BOUND,
+    INCIRCLE_BOUND,
+):
+    raise ImportError(  # pragma: no cover - a mismatched build only
+        'the compiled predicates were built with different error bounds (%r) from '
+        'this module (%r); rebuild the extension'
+        % ((_native.ORIENT_BOUND, _native.INCIRCLE_BOUND), (ORIENT_BOUND, INCIRCLE_BOUND))
+    )
 
 
 class NonFinitePointError(ValueError):
@@ -103,7 +126,7 @@ def _coords(*points: Point) -> tuple[float, ...]:
     return tuple(out)
 
 
-def _scaled_ints(values: Sequence[float]) -> list[int]:
+def scaled_ints(values: Sequence[float]) -> list[int]:
     """Scale floats to exact integers by a shared power of two.
 
     Every finite binary64 value is an integer over a power of two. Multiplying
@@ -117,7 +140,7 @@ def _scaled_ints(values: Sequence[float]) -> list[int]:
     return [num << (shift - (den.bit_length() - 1)) for num, den in ratios]
 
 
-def _sign(value: float | int) -> int:
+def sign(value: float | int) -> int:
     return (value > 0) - (value < 0)
 
 
@@ -127,8 +150,8 @@ def exact_orient2d(a: Point, b: Point, c: Point) -> int:
     Always correct and always slow. Use :func:`orient2d`, which agrees with this
     function on every input and reaches it only when it must.
     """
-    ax, ay, bx, by, cx, cy = _scaled_ints(_coords(a, b, c))
-    return _sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax))
+    ax, ay, bx, by, cx, cy = scaled_ints(_coords(a, b, c))
+    return sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax))
 
 
 def orient2d(a: Point, b: Point, c: Point) -> int:
@@ -145,9 +168,11 @@ def orient2d(a: Point, b: Point, c: Point) -> int:
         try:
             settled = _native.orient2d(a, b, c)
         except ValueError:
-            raise NonFinitePointError(
-                'point %r has a non-finite coordinate' % (tuple(a),)
-            ) from None
+            # The compiled filter raises for a non-finite coordinate in any of
+            # its arguments, and does not say which. `_coords` finds the
+            # offending one and names it, so the message blames the right point.
+            _coords(a, b, c)
+            raise  # pragma: no cover - `_coords` always raises for what reached here
         if settled != _native.UNCERTAIN:
             return int(settled)
         return exact_orient2d(a, b, c)
@@ -158,8 +183,8 @@ def orient2d(a: Point, b: Point, c: Point) -> int:
     # abs(left) + abs(right) bounds the magnitudes that were cancelled against
     # each other, which is what the rounding error is proportional to.
     magnitude = abs(left) + abs(right)
-    if abs(det) > _ORIENT_BOUND * magnitude:
-        return _sign(det)
+    if abs(det) > ORIENT_BOUND * magnitude:
+        return sign(det)
     if magnitude == 0.0:
         return 0
     return exact_orient2d(a, b, c)
@@ -167,14 +192,14 @@ def orient2d(a: Point, b: Point, c: Point) -> int:
 
 def exact_incircle(a: Point, b: Point, c: Point, d: Point) -> int:
     """:func:`incircle` computed entirely in exact integer arithmetic."""
-    ax, ay, bx, by, cx, cy, dx, dy = _scaled_ints(_coords(a, b, c, d))
+    ax, ay, bx, by, cx, cy, dx, dy = scaled_ints(_coords(a, b, c, d))
     adx, ady = ax - dx, ay - dy
     bdx, bdy = bx - dx, by - dy
     cdx, cdy = cx - dx, cy - dy
     alift = adx * adx + ady * ady
     blift = bdx * bdx + bdy * bdy
     clift = cdx * cdx + cdy * cdy
-    return _sign(
+    return sign(
         alift * (bdx * cdy - cdx * bdy)
         + blift * (cdx * ady - adx * cdy)
         + clift * (adx * bdy - bdx * ady)
@@ -196,9 +221,11 @@ def incircle(a: Point, b: Point, c: Point, d: Point) -> int:
         try:
             settled = _native.incircle(a, b, c, d)
         except ValueError:
-            raise NonFinitePointError(
-                'point %r has a non-finite coordinate' % (tuple(a),)
-            ) from None
+            # The compiled filter raises for a non-finite coordinate in any of
+            # its arguments, and does not say which. `_coords` finds the
+            # offending one and names it, so the message blames the right point.
+            _coords(a, b, c, d)
+            raise  # pragma: no cover - `_coords` always raises for what reached here
         if settled != _native.UNCERTAIN:
             return int(settled)
         return exact_incircle(a, b, c, d)
@@ -218,8 +245,8 @@ def incircle(a: Point, b: Point, c: Point, d: Point) -> int:
         + blift * (abs(cdxady) + abs(adxcdy))
         + clift * (abs(adxbdy) + abs(bdxady))
     )
-    if abs(det) > _INCIRCLE_BOUND * magnitude:
-        return _sign(det)
+    if abs(det) > INCIRCLE_BOUND * magnitude:
+        return sign(det)
     if magnitude == 0.0:
         return 0
     return exact_incircle(a, b, c, d)
@@ -234,6 +261,11 @@ def orient2d_many(a: Point, b: Point, points: np.ndarray) -> np.ndarray:
 
     ``points`` is an ``(N, 2)`` array; the result is an ``(N,)`` array of
     ``int8`` signs with the meaning :func:`orient2d` gives them.
+
+    The filter is written out in NumPy rather than called per point, because
+    per-point calls are what this function exists to avoid; it uses
+    :data:`ORIENT_BOUND`, so the decision of what counts as settled is the same
+    one :func:`orient2d` makes, whichever implementation of it is in use.
     """
     pts = np.asarray(points, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2:
@@ -246,7 +278,7 @@ def orient2d_many(a: Point, b: Point, points: np.ndarray) -> np.ndarray:
     det = left - right
     magnitude = np.abs(left) + np.abs(right)
     signs = np.sign(det).astype(np.int8)
-    uncertain = np.flatnonzero(np.abs(det) <= _ORIENT_BOUND * magnitude)
+    uncertain = np.flatnonzero(np.abs(det) <= ORIENT_BOUND * magnitude)
     for i in uncertain:
         signs[i] = exact_orient2d((ax, ay), (bx, by), pts[i])
     return signs

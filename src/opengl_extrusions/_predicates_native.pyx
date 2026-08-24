@@ -26,10 +26,16 @@ UNCERTAIN = UNCERTAIN_C
 #: Unit roundoff for IEEE-754 binary64, and the same deliberately loose error
 #: bounds the pure-Python implementation uses. They must agree: a caller that
 #: took the compiled answer where the Python one would have gone exact would be
-#: getting a different -- and possibly wrong -- result from the same input.
-cdef double U = 1.1102230246251565e-16          # 2 ** -53
-cdef double ORIENT_BOUND = 8.0 * U
-cdef double INCIRCLE_BOUND = 16.0 * U
+#: getting a different -- and possibly wrong -- result from the same input. So
+#: they are computed here rather than written out, and exported so that
+#: :mod:`opengl_extrusions.predicates` can check them against its own on import.
+cdef double U = 2.0 ** -53
+cdef double ORIENT_BOUND_C = 8.0 * U
+cdef double INCIRCLE_BOUND_C = 16.0 * U
+
+UNIT_ROUNDOFF = U
+ORIENT_BOUND = ORIENT_BOUND_C
+INCIRCLE_BOUND = INCIRCLE_BOUND_C
 
 
 cdef inline int _sign(double value) noexcept nogil:
@@ -61,7 +67,7 @@ def orient2d(a, b, c):
     cdef double right = (by - ay) * (cx - ax)
     cdef double det = left - right
     cdef double magnitude = fabs(left) + fabs(right)
-    if fabs(det) > ORIENT_BOUND * magnitude:
+    if fabs(det) > ORIENT_BOUND_C * magnitude:
         return _sign(det)
     if magnitude == 0.0:
         return 0
@@ -95,7 +101,7 @@ def incircle(a, b, c, d):
     cdef double magnitude = (alift * (fabs(bdxcdy) + fabs(cdxbdy))
                              + blift * (fabs(cdxady) + fabs(adxcdy))
                              + clift * (fabs(adxbdy) + fabs(bdxady)))
-    if fabs(det) > INCIRCLE_BOUND * magnitude:
+    if fabs(det) > INCIRCLE_BOUND_C * magnitude:
         return _sign(det)
     if magnitude == 0.0:
         return 0

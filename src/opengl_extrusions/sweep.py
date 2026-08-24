@@ -46,7 +46,7 @@ closed by caps if asked for.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,7 +63,7 @@ from opengl_extrusions.texcoords import (
 from opengl_extrusions.texcoords import (
     TEXTURE_MODES as _TEXTURE_MODES,
 )
-from opengl_extrusions.types import Vector
+from opengl_extrusions.types import Colors, Contours, Points, Scalars, Vector
 
 __all__ = [
     'sweep',
@@ -128,7 +128,7 @@ class Station:
     arc_length: float
     #: Whether a strip should be built from this station to the next one.
     connect: bool = True
-    #: Vertex colour for this ring, ``(4,)`` RGBA, when the caller asked for one.
+    #: Vertex color for this ring, ``(4,)`` RGBA, when the caller asked for one.
     color: np.ndarray | None = None
     #: Normals for the strip *leaving* this station, where they differ from the
     #: ones for the strip arriving at it. A mitred corner is exactly that case:
@@ -150,10 +150,10 @@ class Station:
 
 
 def sweep(
-    contour,
-    path,
+    contour: Contours,
+    path: Points,
     *,
-    contour_normals_2d=None,
+    contour_normals_2d: Contours | None = None,
     up: Vector = (0.0, 1.0, 0.0),
     frames: str = 'up',
     join: str = 'angle',
@@ -164,9 +164,9 @@ def sweep(
     closed_path: bool = False,
     normals: str = 'edge',
     texture: str | None = 'normalized',
-    scale=None,
-    twist=None,
-    color=None,
+    scale: Scalars | None = None,
+    twist: Scalars | None = None,
+    color: Colors | None = None,
     path_ends: str = 'draw',
     cap_min_angle: float | None = None,
     cap_max_area: float | None = None,
@@ -191,6 +191,14 @@ def sweep(
     if path_ends not in PATH_ENDS:
         raise ValueError(
             'unknown path_ends %r; expected one of %s' % (path_ends, ', '.join(PATH_ENDS))
+        )
+    if join == 'round' and int(round_segments) < 2:
+        # Fewer than two facets cannot turn a corner: one leaves the elbow as a
+        # single stretched strip, which is a `cut` join under another name and
+        # not what the caller asked for.
+        raise ValueError(
+            "a 'round' join needs at least 2 round_segments to turn a corner, "
+            'got %r' % (round_segments,)
         )
 
     rings = _as_contours(contour)
@@ -244,8 +252,6 @@ def sweep(
         mesh = mesh + _caps(
             geometry,
             rings,
-            contour_normals_2d,
-            closed_contour,
             cap_begin,
             cap_end,
             texture,
@@ -264,9 +270,17 @@ def sweep(
 # -- input handling -------------------------------------------------------
 
 
-def _as_contours(contour) -> list[np.ndarray]:
-    """One contour or several, uniformly, validated."""
-    if isinstance(contour, np.ndarray) and contour.ndim == 2:
+def _as_contours(contour: Contours) -> list[np.ndarray]:
+    """One contour or several, uniformly, validated.
+
+    An ``(N, 2)`` array is one contour, a ``(K, N, 2)`` array is K of them --
+    which is what stacking rings of the same length gives, and a natural way to
+    hand over a shape with holes -- and any sequence of ``(N, 2)`` arrays is as
+    many as it holds, whatever lengths they are.
+    """
+    if isinstance(contour, np.ndarray) and contour.ndim == 3:
+        candidates = list(contour)
+    elif isinstance(contour, np.ndarray) and contour.ndim == 2:
         candidates = [contour]
     elif isinstance(contour, (list, tuple)) and contour and isinstance(contour[0], (int, float)):
         raise ValueError('contour must be an (N, 2) array of points')
@@ -296,7 +310,9 @@ def _as_contours(contour) -> list[np.ndarray]:
     return out
 
 
-def _with_normals(rings, supplied, closed_contour):
+def _with_normals(
+    rings: list[np.ndarray], supplied: Contours | None, closed_contour: bool
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
     """Pair each contour with its 2D normals, computing them if not supplied."""
     if supplied is None:
         for ring in rings:
@@ -320,7 +336,7 @@ def _with_normals(rings, supplied, closed_contour):
         yield ring, ring_normals
 
 
-def _cap_flags(caps, closed_contour, closed_path) -> tuple[bool, bool]:
+def _cap_flags(caps: Any, closed_contour: bool, closed_path: bool) -> tuple[bool, bool]:
     """Which ends to cap, and whether the request can be honoured at all.
 
     ``'auto'`` -- the default -- caps where caps are possible and says nothing
@@ -355,7 +371,9 @@ def _cap_flags(caps, closed_contour, closed_path) -> tuple[bool, bool]:
     return begin, end
 
 
-def _per_point(value, steps: int, what: str, width: int, default: Sequence[float]) -> np.ndarray:
+def _per_point(
+    value: Scalars | None, steps: int, what: str, width: int, default: Sequence[float]
+) -> np.ndarray:
     """Broadcast a per-path-point parameter to ``(steps, width)``."""
     if value is None:
         return np.tile(np.asarray(default, dtype=np.float64)[:width], (steps, 1))
@@ -401,7 +419,7 @@ def _place(
     up: np.ndarray,
     scale: np.ndarray,
     twist: float,
-):
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Put a contour into a frame, scaled and turned.
 
     Returns the 3D points and normals, and the 2D coordinates and normals they
@@ -437,7 +455,9 @@ def _place(
     return points, normals, xy, normals_xy
 
 
-def _segment_frame(geometry: PathFrames, index: int, forward: np.ndarray):
+def _segment_frame(
+    geometry: PathFrames, index: int, forward: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """A frame perpendicular to ``forward``, as close to the station's as possible."""
     reference_up = geometry.up[index]
     projected = reference_up - forward * float(np.dot(reference_up, forward))
@@ -470,7 +490,7 @@ def _stations(
     last = count if closed_path else count - 1
 
     for i in range(count):
-        colour = None if color_values is None else color_values[i]
+        color = None if color_values is None else color_values[i]
         interior = closed_path or (0 < i < count - 1)
         arc = float(geometry.arc_length[i])
         scale, twist = scale_values[i], float(twist_values[i])
@@ -494,7 +514,7 @@ def _stations(
                     normals,
                     arc,
                     connect=closed_path or i < last,
-                    color=colour,
+                    color=color,
                     normals_out=leaving,
                     placed_xy=flat,
                     placed_normal_xy=flat_n,
@@ -516,21 +536,21 @@ def _stations(
                 ending[1],
                 arc,
                 connect=join != 'raw',
-                color=colour,
+                color=color,
                 facet_next=(join == 'cut'),
                 placed_xy=ending[2],
                 placed_normal_xy=ending[3],
             )
         )
         if join == 'round':
-            stations.extend(_round_corner(geometry, i, ending, arc, round_segments, colour))
+            stations.extend(_round_corner(geometry, i, ending, arc, round_segments, color))
         stations.append(
             Station(
                 starting[0],
                 starting[1],
                 arc,
                 connect=closed_path or i < last,
-                color=colour,
+                color=color,
                 placed_xy=starting[2],
                 placed_normal_xy=starting[3],
             )
@@ -576,7 +596,7 @@ def _mitre(
     scale: np.ndarray,
     twist: float,
     miter_limit: float,
-):
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """One ring in the bisecting plane, reached along the incoming segment.
 
     Building it from the incoming segment rather than from the average frame is
@@ -624,10 +644,10 @@ def _mitre(
 def _round_corner(
     geometry: PathFrames,
     index: int,
-    ending,
+    ending: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
     arc: float,
     round_segments: int,
-    colour: np.ndarray | None = None,
+    color: np.ndarray | None = None,
 ) -> list[Station]:
     """Rings turning the corner, between the two square ends.
 
@@ -636,9 +656,7 @@ def _round_corner(
     size it has everywhere else, and the outside of the corner sweeps an arc
     while the inside gathers at the pivot.
     """
-    steps = max(int(round_segments), 1)
-    if steps < 2:
-        return []
+    steps = int(round_segments)
     incoming, outgoing = geometry.incoming[index], geometry.outgoing[index]
     axis = np.cross(incoming, outgoing)
     length = float(np.linalg.norm(axis))
@@ -658,7 +676,7 @@ def _round_corner(
                 normals,
                 arc,
                 connect=True,
-                color=colour,
+                color=color,
                 placed_xy=ending[2],
                 placed_normal_xy=ending[3],
             )
@@ -920,8 +938,6 @@ def _contour_parameter(ring: np.ndarray, closed_contour: bool, texture: str | No
 def _caps(
     geometry: PathFrames,
     rings: list[np.ndarray],
-    supplied_normals,
-    closed_contour: bool,
     begin: bool,
     end: bool,
     texture: str | None,

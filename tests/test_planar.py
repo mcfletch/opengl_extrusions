@@ -220,7 +220,8 @@ class TestBuildPSLG:
         ]
         assert len(shared) == 1
         assert (
-            abs(g.winding[[i for i, e in enumerate(g.edges) if list(e) == list(shared[0])][0]]) == 2
+            abs(g.winding[next(i for i, e in enumerate(g.edges) if list(e) == list(shared[0]))])
+            == 2
         )
 
     def test_an_empty_contour_list_is_an_empty_graph(self):

@@ -30,12 +30,13 @@ from math import fsum
 import numpy as np
 
 from opengl_extrusions.predicates import (
+    ORIENT_BOUND,
     NonFinitePointError,
-    _scaled_ints,
-    _sign,
     orient2d,
+    scaled_ints,
+    sign,
 )
-from opengl_extrusions.types import Point
+from opengl_extrusions.types import Point, Points
 
 __all__ = [
     'PSLG',
@@ -157,13 +158,14 @@ def polygon_orientation(points: Iterable[Point]) -> int:
     magnitude = fsum(np.abs(terms).tolist())
     if magnitude == 0.0:
         return 0
-    if abs(total) > 8.0 * 2.0**-53 * magnitude:
-        return _sign(total)
-    scaled = _scaled_ints(pts.ravel().tolist())
+    # The same bound `orient2d` filters by, from the one place it is defined.
+    if abs(total) > ORIENT_BOUND * magnitude:
+        return sign(total)
+    scaled = scaled_ints(pts.ravel().tolist())
     xs, ys = scaled[0::2], scaled[1::2]
     n = len(xs)
     exact = sum(xs[i] * ys[(i + 1) % n] - xs[(i + 1) % n] * ys[i] for i in range(n))
-    return _sign(exact)
+    return sign(exact)
 
 
 def point_in_polygon(point: Point, polygon: Iterable[Point]) -> bool:
@@ -184,9 +186,8 @@ def point_in_polygon(point: Point, polygon: Iterable[Point]) -> bool:
         # Half-open crossing rule: a vertex exactly at the ray's height counts
         # for the edge above it and not the one below, so a ray through a vertex
         # is counted once rather than twice or not at all.
-        if (a[1] > py) != (b[1] > py):
-            if orient2d(a, b, (px, py)) == (1 if b[1] > a[1] else -1):
-                inside = not inside
+        if (a[1] > py) != (b[1] > py) and orient2d(a, b, (px, py)) == (1 if b[1] > a[1] else -1):
+            inside = not inside
     return inside
 
 
@@ -220,7 +221,7 @@ def segments_cross(p1: Point, q1: Point, p2: Point, q2: Point) -> bool:
     return d1 * d2 < 0 and d3 * d4 < 0
 
 
-def segment_intersection(p1: Point, q1: Point, p2: Point, q2: Point):
+def segment_intersection(p1: Point, q1: Point, p2: Point, q2: Point) -> np.ndarray | None:
     """The crossing point of two properly crossing segments, or ``None``.
 
     Returns a ``(2,)`` float64 array. The point is computed in floating point --
@@ -270,11 +271,11 @@ def clean_contour(
 
 def clean_contour_indexed(
     points: Iterable[Point], tolerance: float = 0.0, remove_collinear: bool = False
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """:func:`clean_contour`, also reporting where each survivor came from.
 
     Returns ``(points, indices)``, where ``indices[k]`` is the position in the
-    input of the point now at ``k``. A caller carrying colours, weights or ring
+    input of the point now at ``k``. A caller carrying colors, weights or ring
     identity alongside its outline uses this to carry them through the cleaning.
     """
     pts = _as_contour(points)
@@ -309,7 +310,9 @@ def _within(a: np.ndarray, b: np.ndarray, tolerance: float) -> bool:
     return dx * dx + dy * dy <= tolerance * tolerance
 
 
-def _drop_collinear(points: list[np.ndarray], where: list[int]):
+def _drop_collinear(
+    points: list[np.ndarray], where: list[int]
+) -> tuple[list[np.ndarray], list[int]]:
     """Remove points that add nothing to the outline, repeatedly.
 
     One pass is not enough: removing a point can leave its neighbours collinear
@@ -417,7 +420,7 @@ class _VertexMerger:
 # -- the graph ------------------------------------------------------------
 
 
-def _normalise_contours(contours) -> list[np.ndarray]:
+def _normalise_contours(contours: Points | Iterable[Points]) -> list[np.ndarray]:
     """Accept one contour or a sequence of them, uniformly."""
     if isinstance(contours, np.ndarray) and contours.ndim == 2:
         return [contours]
@@ -443,7 +446,11 @@ def _auto_tolerance(contours: list[np.ndarray]) -> float:
     return diagonal * RELATIVE_TOLERANCE
 
 
-def build_pslg(contours, tolerance: float | None = None, remove_collinear: bool = False) -> PSLG:
+def build_pslg(
+    contours: Points | Iterable[Points],
+    tolerance: float | None = None,
+    remove_collinear: bool = False,
+) -> PSLG:
     """Turn closed contours into a planar straight-line graph.
 
     ``contours`` is one ``(N, 2)`` array or a sequence of them, each a closed
@@ -539,7 +546,14 @@ def _find_splits(directed: list[tuple[int, int]], merger: _VertexMerger) -> dict
     return splits
 
 
-def _split_pair(s: int, t: int, directed, points, merger: _VertexMerger, splits: dict) -> None:
+def _split_pair(
+    s: int,
+    t: int,
+    directed: list[tuple[int, int]],
+    points: list[np.ndarray],
+    merger: _VertexMerger,
+    splits: dict,
+) -> None:
     """Record the subdivisions two segments impose on each other."""
     a, b = directed[s]
     c, d = directed[t]
@@ -633,7 +647,6 @@ def winding_at(graph: PSLG, point: Point) -> int:
         if a[1] <= py < b[1]:
             if orient2d(a, b, (px, py)) > 0:
                 total += int(delta)
-        elif b[1] <= py < a[1]:
-            if orient2d(a, b, (px, py)) < 0:
-                total -= int(delta)
+        elif b[1] <= py < a[1] and orient2d(a, b, (px, py)) < 0:
+            total -= int(delta)
     return total

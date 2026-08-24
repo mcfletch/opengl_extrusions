@@ -38,16 +38,18 @@ out from the axis, added to the sweep radius, and its y is height along z.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 
-from opengl_extrusions.contours import circle, contour_normals
+from opengl_extrusions.contours import circle
+from opengl_extrusions.contours import contour_normals as _contour_normals
 from opengl_extrusions.curves import helix
 from opengl_extrusions.mesh import Mesh, Primitive
 from opengl_extrusions.sweep import Station, SweepError, build_from_stations, sweep
 from opengl_extrusions.tessellate import tessellate
-from opengl_extrusions.types import Vector
+from opengl_extrusions.types import Colors, Contours, Points, Scalars, Vector
 
 __all__ = [
     'extrude',
@@ -64,10 +66,10 @@ _TINY = 1e-12
 
 
 def extrude(
-    contour,
-    path,
+    contour: Contours,
+    path: Points,
     *,
-    contour_normals=None,
+    contour_normals: Contours | None = None,
     up: Vector = (0.0, 1.0, 0.0),
     frames: str = 'up',
     join: str = 'angle',
@@ -78,9 +80,9 @@ def extrude(
     closed_path: bool = False,
     normals: str = 'edge',
     texture: str | None = 'normalized',
-    scale=None,
-    twist=None,
-    color=None,
+    scale: Scalars | None = None,
+    twist: Scalars | None = None,
+    color: Colors | None = None,
     cap_min_angle: float | None = None,
     cap_max_area: float | None = None,
     name: str | None = None,
@@ -127,7 +129,7 @@ def extrude(
         goes.
     :param twist: rotation of the contour about the path, in radians, either one
         number or one per path point.
-    :param color: vertex colour, ``(r, g, b)`` or ``(r, g, b, a)``, either one
+    :param color: vertex color, ``(r, g, b)`` or ``(r, g, b, a)``, either one
         or one per path point.
     :param cap_min_angle: refine the end caps until no triangle has an angle
         below this many degrees.
@@ -184,7 +186,7 @@ def extrude(
 
 
 def lathe(
-    contour,
+    contour: Points,
     *,
     start_radius: float = 1.0,
     delta_radius: float = 0.0,
@@ -193,7 +195,7 @@ def lathe(
     start_angle: float = 0.0,
     sweep_angle: float = 2 * np.pi,
     sides: int = 20,
-    contour_normals_2d=None,
+    contour_normals_2d: Points | None = None,
     closed_contour: bool = True,
     caps: Any = 'auto',
     normals: str = 'edge',
@@ -252,7 +254,7 @@ def lathe(
 
 
 def spiral(
-    contour,
+    contour: Points,
     *,
     start_radius: float = 1.0,
     delta_radius: float = 0.0,
@@ -261,7 +263,7 @@ def spiral(
     start_angle: float = 0.0,
     sweep_angle: float = 2 * np.pi,
     sides: int = 20,
-    contour_normals_2d=None,
+    contour_normals_2d: Points | None = None,
     closed_contour: bool = True,
     caps: Any = 'auto',
     normals: str = 'edge',
@@ -271,10 +273,18 @@ def spiral(
 ) -> Mesh:
     """Sweep a contour along a helix, keeping its plane square to the path.
 
-    The parameters are :func:`lathe`'s. The difference is that the contour tilts
-    with the climb rather than staying upright, so this is the one to use for
-    anything made of a length of something -- a coiled spring, a wound cable, a
-    spiral staircase handrail.
+    The parameters are :func:`lathe`'s, except that a spiral is swept along a
+    path and so has corners between its facets to close:
+
+    :param join: how those corners are made -- ``'angle'`` (a mitre, the
+        default), ``'raw'``, ``'cut'`` or ``'round'``, meaning what they mean
+        for :func:`extrude`. A lathe places radial rings instead and has no
+        equivalent.
+
+    The difference from :func:`lathe` is that the contour tilts with the climb
+    rather than staying upright, so this is the one to use for anything made of
+    a length of something -- a coiled spring, a wound cable, a spiral staircase
+    handrail.
 
     A coil spring::
 
@@ -325,7 +335,7 @@ def spiral(
     ).reversed()
 
 
-def _mirror_x(contour, normals):
+def _mirror_x(contour: Points, normals: Points | None) -> tuple[np.ndarray, np.ndarray | None]:
     """Flip a contour left-to-right, and its normals with it."""
     ring = np.asarray(contour, dtype=np.float64).copy()
     if ring.ndim == 2 and ring.shape[1] == 2:
@@ -338,13 +348,13 @@ def _mirror_x(contour, normals):
 
 
 def screw(
-    contour,
+    contour: Points,
     *,
     start_z: float = -1.0,
     end_z: float = 1.0,
     twist: float = np.pi,
     steps: int | None = None,
-    contour_normals_2d=None,
+    contour_normals_2d: Points | None = None,
     closed_contour: bool = True,
     caps: Any = 'auto',
     normals: str = 'edge',
@@ -391,30 +401,33 @@ def screw(
     )
 
 
-def helicoid(section_radius: float = 0.25, *, section_sides: int = 12, **kwargs) -> Mesh:
+def helicoid(section_radius: float = 0.25, *, section_sides: int = 12, **kwargs: Any) -> Mesh:
     """A :func:`lathe` of a circle: a round-sectioned sheared coil.
 
     ``section_radius`` and ``section_sides`` describe the circular contour; every
-    other parameter is :func:`lathe`'s.
+    other keyword is passed to :func:`lathe`, which is where they are documented
+    and which is what raises for one it does not take.
     """
     kwargs.setdefault('name', 'helicoid')
     return lathe(circle(section_radius, section_sides), **kwargs)
 
 
-def toroid(section_radius: float = 0.25, *, section_sides: int = 12, **kwargs) -> Mesh:
+def toroid(section_radius: float = 0.25, *, section_sides: int = 12, **kwargs: Any) -> Mesh:
     """A :func:`spiral` of a circle: a round-sectioned coil, or a torus.
 
     With the default full turn and no rise, this is a torus. With a rise per turn
-    and several turns, it is a coil spring.
+    and several turns, it is a coil spring. ``section_radius`` and
+    ``section_sides`` describe the circular contour; every other keyword is
+    passed to :func:`spiral`, which is where they are documented.
     """
     kwargs.setdefault('name', 'toroid')
     return spiral(circle(section_radius, section_sides), **kwargs)
 
 
-def polycylinder(path, radius: float = 1.0, *, sides: int = 20, **kwargs) -> Mesh:
+def polycylinder(path: Points, radius: float = 1.0, *, sides: int = 20, **kwargs: Any) -> Mesh:
     """A round tube of constant radius along a path.
 
-    Everything :func:`extrude` accepts is accepted here.
+    Every keyword :func:`extrude` accepts is accepted here and passed to it.
     """
     kwargs.setdefault('name', 'polycylinder')
     mesh = extrude(circle(radius, sides), path, **kwargs)
@@ -423,7 +436,9 @@ def polycylinder(path, radius: float = 1.0, *, sides: int = 20, **kwargs) -> Mes
     return mesh
 
 
-def polycone(path, radii, *, sides: int = 20, **kwargs) -> Mesh:
+def polycone(
+    path: Points, radii: Sequence[float] | np.ndarray, *, sides: int = 20, **kwargs: Any
+) -> Mesh:
     """A round tube whose radius is given separately at every path point.
 
     ``radii`` has one value per point of ``path``. Between two points the radius
@@ -434,6 +449,15 @@ def polycone(path, radii, *, sides: int = 20, **kwargs) -> Mesh:
     values = np.asarray(radii, dtype=np.float64)
     if values.ndim != 1:
         raise ValueError('radii must be one value per path point, got %r' % (values.shape,))
+    # Checked here, against the path as the caller wrote it. Letting `extrude`
+    # catch it reports the length after duplicate points have been dropped,
+    # which is a number the caller never typed.
+    written = len(np.asarray(path, dtype=np.float64).reshape(-1, 3))
+    if len(values) != written:
+        raise ValueError(
+            'polycone needs one radius per path point: the path has %d point(s) '
+            'and %d radius/radii were given' % (written, len(values))
+        )
     mesh = extrude(circle(1.0, sides), path, scale=values, **kwargs)
     for p in mesh.primitives:
         p.extras['generator'] = 'polycone'
@@ -470,22 +494,22 @@ def _cap_choice(
 
 
 def _rotational(
-    contour,
-    supplied_normals,
-    start_radius,
-    delta_radius,
-    start_z,
-    delta_z,
-    start_angle,
-    sweep_angle,
-    sides,
-    closed_contour,
-    caps,
-    normals,
-    texture,
-    mitre,
-    name,
-    generator,
+    contour: Points,
+    supplied_normals: Points | None,
+    start_radius: float,
+    delta_radius: float,
+    start_z: float,
+    delta_z: float,
+    start_angle: float,
+    sweep_angle: float,
+    sides: int,
+    closed_contour: bool,
+    caps: Any,
+    normals: str,
+    texture: str | None,
+    mitre: bool,
+    name: str | None,
+    generator: str,
 ) -> Mesh:
     """Place a radial ring at each step around the axis, and strip them together."""
     ring = np.asarray(contour, dtype=np.float64)
@@ -497,14 +521,24 @@ def _rotational(
         raise ValueError('contour contains a non-finite coordinate')
     if sides < 1:
         raise ValueError('sides must be at least 1, got %r' % (sides,))
+    if mitre and sides < 3:
+        # The mitre stretches each ring by 1 / cos(half a step) so that the flat
+        # facets meet on the true surface. At two facets per turn the step is
+        # half a turn, the cosine is zero, and there is no stretch that makes a
+        # meaningful shape -- clamping the divisor produced a model 200 000
+        # units across instead of an error.
+        raise ValueError(
+            'a mitred sweep needs at least three facets per full turn, got %r; '
+            'pass mitre=False for a stepped sweep of fewer' % (sides,)
+        )
     ring_normals = (
-        contour_normals(ring, closed=closed_contour)
+        _contour_normals(ring, closed=closed_contour)
         if supplied_normals is None
         else np.asarray(supplied_normals, dtype=np.float64)
     )
 
     turns = float(sweep_angle) / (2 * np.pi)
-    steps = max(int(round(abs(turns) * sides)), 1)
+    steps = max(round(abs(turns) * sides), 1)
     angles = start_angle + np.linspace(0.0, float(sweep_angle), steps + 1)
     step_angle = float(sweep_angle) / steps
     # Each facet is a flat quad spanning one step; stretching the ring by
@@ -585,14 +619,14 @@ def _rotational(
 
 
 def _rotational_caps(
-    ring,
-    angles,
-    start_angle,
-    start_radius,
-    delta_radius,
-    start_z,
-    delta_z,
-    texture,
+    ring: np.ndarray,
+    angles: np.ndarray,
+    start_angle: float,
+    start_radius: float,
+    delta_radius: float,
+    start_z: float,
+    delta_z: float,
+    texture: str | None,
 ) -> Mesh:
     """Flat faces closing the two cut ends of a partial sweep.
 

@@ -69,13 +69,25 @@ _GL_ARRAY_BUFFER = 34962
 _GL_ELEMENT_ARRAY_BUFFER = 34963
 _MODE_TRIANGLES = 4
 
+#: Attributes glTF defines with integer semantics. Everything this library
+#: generates is float32, but `Primitive` is a public dataclass and a caller
+#: adding skinning data means the numbers to be indices, not to be rounded
+#: through a float32.
+_INTEGER_ATTRIBUTES = frozenset({'JOINTS_0', 'JOINTS_1'})
+
 
 class MeshError(ValueError):
     """A mesh does not describe geometry that can be drawn."""
 
 
 def _as_float32(array: Any) -> np.ndarray:
-    """A C-contiguous float32 view, without copying one that already is."""
+    """The array as C-contiguous float32, copying only where it must.
+
+    An array already in that form is returned as it is, which is the contract
+    that makes handing a generated mesh to a renderer cost nothing. Anything
+    else -- a list, a float64 array, a slice with a stride -- is converted, and
+    that is a copy.
+    """
     out = np.asarray(array, dtype=np.float32)
     return np.ascontiguousarray(out)
 
@@ -100,7 +112,12 @@ class Primitive:
     extras: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self.attributes = {name: _as_float32(value) for name, value in self.attributes.items()}
+        self.attributes = {
+            name: (
+                np.ascontiguousarray(value) if name in _INTEGER_ATTRIBUTES else _as_float32(value)
+            )
+            for name, value in self.attributes.items()
+        }
         if self.indices is not None:
             self.indices = np.ascontiguousarray(np.asarray(self.indices, dtype=np.uint32).ravel())
 
@@ -138,7 +155,22 @@ class Primitive:
 
     @property
     def triangles(self) -> np.ndarray:
-        """The index buffer as ``(T, 3)``, whether or not one was supplied."""
+        """The index buffer as ``(T, 3)``, whether or not one was supplied.
+
+        Only for a triangle-list primitive. A strip or a fan describes its
+        triangles by a different rule, and reading one three indices at a time
+        gives a set of triangles that is not the surface -- which
+        :meth:`is_manifold`, :meth:`is_watertight` and :meth:`signed_volume`
+        would then answer about confidently. Convert first, or ask the index
+        buffer directly.
+
+        :raises MeshError: for any ``mode`` but triangles.
+        """
+        if self.mode != _MODE_TRIANGLES:
+            raise MeshError(
+                'triangles is only defined for a triangle-list primitive, and '
+                'this one has mode %d' % (self.mode,)
+            )
         if self.indices is None:
             return np.arange(self.vertex_count, dtype=np.uint32)[: self.triangle_count * 3].reshape(
                 -1, 3
@@ -459,10 +491,22 @@ class Mesh:
             for p in members:
                 indices.append(p.triangles.ravel().astype(np.uint32) + offset)
                 offset += p.vertex_count
+            # What each member was is kept, not replaced. `sweep` merges by
+            # default whenever there is more than one primitive, so discarding
+            # this loses cap and contour identity on the ordinary path -- and
+            # `extras` exists to say where geometry came from.
+            merged_extras: dict[str, Any] = {'merged': len(members)}
+            members_extras = [p.extras for p in members if p.extras]
+            if members_extras:
+                merged_extras['members'] = [
+                    entry.get('cap', entry.get('contour')) for entry in members_extras
+                ]
+                for entry in members_extras:
+                    for name, value in entry.items():
+                        if name not in ('cap', 'contour'):
+                            merged_extras.setdefault(name, value)
             out.append(
-                Primitive(
-                    attributes, np.concatenate(indices), key[1], key[2], {'merged': len(members)}
-                )
+                Primitive(attributes, np.concatenate(indices), key[1], key[2], merged_extras)
             )
         return Mesh(out, self.name, self.materials)
 
