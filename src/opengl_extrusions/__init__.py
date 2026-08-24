@@ -97,7 +97,9 @@ from opengl_extrusions.tessellate import Tessellation, tessellate
 from opengl_extrusions.vrml97 import spine_frames, vrml97_extrusion
 from opengl_extrusions.weld import averaged_normals, smoothing_groups
 
-__version__ = '0.1.0a1'
+#: The single definition of this package's version: ``pyproject.toml``
+#: reads it from here, and so does the release workflow.
+__version__ = '1.0.0'
 
 __all__ = [
     '__version__',

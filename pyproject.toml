@@ -10,7 +10,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opengl_extrusions"
-version = "0.1.0a1"
+# Read from src/opengl_extrusions/__init__.py -- see [tool.setuptools.dynamic]
+# below. One definition, because .github/workflows/release.yml decides whether
+# to publish by reading `__version__`, and a second copy here that drifted from
+# it would mean the version checked against PyPI was not the version built.
+dynamic = ["version"]
 description = "Tubing, extrusion, lathing and polygon tessellation geometry, as NumPy arrays"
 readme = "README.md"
 license = "MIT"
@@ -24,6 +28,7 @@ keywords = [
     "delaunay", "geometry", "glTF", "numpy", "3D", "CDT",
 ]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -58,6 +63,9 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/mcfletch/opengl_extrusions"
 Repository = "https://github.com/mcfletch/opengl_extrusions"
+
+[tool.setuptools.dynamic]
+version = {attr = "opengl_extrusions.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
