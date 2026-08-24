@@ -48,7 +48,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "hypothesis>=6.0"]
+test = [
+    "pytest",
+    # CPython only. Hypothesis is a compiled package now -- it stopped shipping a
+    # pure-Python wheel -- and publishes wheels for cp310-cp315 and pp311 alone,
+    # so a PyPy row without one tries to build it from source and fails. The
+    # property tests ask about geometry rather than about the interpreter, and
+    # PyPy is in the matrix for the pure-Python predicates, which do not need it;
+    # `tests/test_properties.py` skips where it is absent.
+    "hypothesis>=6.0; implementation_name == 'cpython'",
+]
 # The GLE capture harness (tools/gle_capture.py) only; never imported by the
 # package. PyOpenGL 4 is a pre-release, so this extra needs ``pip install --pre``.
 gle = ["PyOpenGL>=4.0.0a1", "glfw>=2.0"]

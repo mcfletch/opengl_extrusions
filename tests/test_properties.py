@@ -18,6 +18,12 @@ import contextlib
 
 import numpy as np
 import pytest
+
+# Hypothesis is a CPython-only test dependency: it ships no pure-Python wheel and
+# none for this PyPy, so the rest of the suite runs there and this file does not.
+# What it covers is the geometry, which the other files cover by example.
+pytest.importorskip('hypothesis', reason='hypothesis has no wheel for this interpreter')
+
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
