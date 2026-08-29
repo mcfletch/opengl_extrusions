@@ -169,3 +169,11 @@ build-frontend = "build"
 # wrong for a wheel we publish: it would ship as a silently slower package. So
 # the wheel is required to carry the extension.
 test-command = 'python -c "from opengl_extrusions import predicates; assert predicates.ACCELERATED; print(\"predicates: compiled\")"'
+
+# uv decides whether its cached metadata for a source tree is still current
+# from pyproject.toml, setup.py and setup.cfg alone. This project's version
+# lives in src/opengl_extrusions/__init__.py, so name that file too: without it
+# a version bump leaves uv answering with the previous number, and a dependent
+# requiring the new one resolves against PyPI rather than this checkout.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/opengl_extrusions/__init__.py" }]
