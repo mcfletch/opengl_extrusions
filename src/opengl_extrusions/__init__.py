@@ -43,6 +43,15 @@ from opengl_extrusions.contours import (
     rounded_rectangle,
     star,
 )
+from opengl_extrusions.nurbs import (
+    NurbsError,
+    NurbsMesh,
+    basis_derivatives,
+    basis_functions,
+    surface_grid,
+    surface_normals,
+    surface_points,
+)
 from opengl_extrusions.curves import (
     CurveError,
     arc_lengths,
@@ -131,6 +140,14 @@ __all__ = [
     'resample_uniform',
     'arc_lengths',
     'CurveError',
+    # NURBS surfaces
+    'surface_points',
+    'surface_normals',
+    'surface_grid',
+    'basis_functions',
+    'basis_derivatives',
+    'NurbsMesh',
+    'NurbsError',
     # contours to sweep
     'circle',
     'regular_polygon',

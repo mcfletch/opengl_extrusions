@@ -6,7 +6,8 @@ This library provides loosely the same capabilities as the GLE Tubing and
 Extrusion library for use with modern core-profile rendering systems, i.e.
 those which expect arrays of points and indices rather than a GL call-list.
 It is used in the OpenGLContext project to replace the GLE based extrusions
-and GLU based tessellations.
+and GLU based tessellations, and its NURBS surface evaluator replaces the GLU
+NURBS tessellator, which is a GLU 1.3 feature that not every platform's GLU has.
 
 The tessellator is a [CDT tessellator](https://en.wikipedia.org/wiki/Constrained_Delaunay_triangulation) which differs from the
 GLU library's tessellator which is often deprecated on newer platforms.

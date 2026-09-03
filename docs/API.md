@@ -345,6 +345,42 @@ parts and leaves the straight parts alone.
 
 See [CURVES.md](CURVES.md).
 
+## NURBS surfaces
+
+`surface_grid(control, u_knots, v_knots, u_degree, v_degree, u_steps, v_steps,
+weights=None)` evaluates a NURBS surface to a mesh: positions, normals,
+parametric texture coordinates and triangle indices.
+
+```python
+from opengl_extrusions import surface_grid
+
+mesh = surface_grid(control, u_knots, v_knots, 3, 3, u_steps=32, v_steps=32)
+```
+
+`control` is a `(u, v, 3)` grid of control points; each knot vector holds
+`len(control_axis) + degree + 1` non-decreasing values. `weights` is one
+positive number per control point --- the *rational* in NURBS, and what lets a
+NURBS circle be a circle rather than an approximation of one. Equal weights give
+the same surface as none.
+
+The normals come from the surface's own first derivatives rather than from
+differences between neighbouring samples, so they are right at the edges of a
+patch as well as in the middle. Where the surface is degenerate --- a collapsed
+row of control points, as a cone tip or a teapot's lid --- the two tangents are
+parallel and their cross product vanishes; the normal there is read as the limit
+a step into the domain away.
+
+For parameters that are not a grid --- the vertices of a trimmed domain, say ---
+`surface_at(control, u_knots, v_knots, u_degree, v_degree, uv, weights=None)`
+and `normals_at(...)` take an `(N, 2)` array of pairs. `curve_points(control,
+knots, degree, ts, weights=None)` is the one-dimensional case, for control
+polygons of any component count: a trimming curve's components are `(u, v)`
+rather than a position.
+
+`basis_functions(parameters, knots, degree, count)` and `basis_derivatives(...)`
+are the basis itself, a row per parameter, for a caller building something these
+functions do not cover.
+
 ## What comes back
 
 `Mesh` holds a list of `Primitive`, each holding NumPy arrays keyed by glTF
@@ -430,6 +466,7 @@ And, from `opengl_extrusions.tangents`:
 | `SweepError` | a path of fewer than two distinct points; caps asked for where they cannot be built |
 | `FrameError` | a path parallel to `up` under `frames='up'` |
 | `CurveError` | too few control points, a non-positive tolerance |
+| `NurbsError` | a knot vector that does not match the control net, a degree the net is too small for, a non-positive weight, a grid of fewer than two steps |
 | `MeshError` | a mesh that could not be drawn — mismatched attributes, an index out of range, vertices with no triangles, a singular transform, a material index nothing defines |
 | `TriangulationError` | a constraint crossing another constraint |
 | `NonFinitePointError` | a NaN or an infinity anywhere |
