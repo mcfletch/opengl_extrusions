@@ -15,3 +15,6 @@ __pycache__/
 .coverage.*
 htmlcov/
 .hypothesis/
+
+# uv lock (byproduct of tox-uv; not tracked for a library)
+uv.lock
