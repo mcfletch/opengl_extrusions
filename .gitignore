@@ -1,4 +1,5 @@
 *.so
+*.pyd
 # Cython's output for the accelerator, generated at build time. Named
 # explicitly rather than as ``*.c``, so that hand-written C added later is
 # not silently swallowed by the ignore.
