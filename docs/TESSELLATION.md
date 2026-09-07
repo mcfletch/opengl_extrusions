@@ -168,9 +168,28 @@ That matters for three reasons:
 
 ## Speed
 
-A 256-point outline triangulates in about 20 ms, and an extrusion cap —
-unrefined, and smaller — in a fraction of that. Refinement is where the time
-goes, and the table above is the shape of it.
+Refinement is where the time goes: a refined mesh costs roughly its vertex count
+times a fixed price per vertex, and that price is what to reason about. On this
+machine it is about **20 µs per vertex** — a unit square refined to a maximum
+triangle area of 1/3600 comes out as 2921 vertices and 5615 triangles in about
+95 ms, and a trimmed square at 1/900 as 616 vertices in about 20 ms. An outline
+that is only triangulated and not refined costs the same per vertex, and it has
+far fewer of them: an extrusion cap is a fraction of a millisecond.
+
+**A refinement target is a request for vertices**, so halving the target area
+doubles them and doubles the time. Where a mesh is going to be rebuilt as
+something moves, ask for the coarsest one that looks right, and cache it.
+
+**The price per vertex is interpreted work, not arithmetic.** Inserting a point
+walks to its triangle, grows the cavity of triangles it replaces, re-fans the
+hole and repairs the neighbourhood by flipping — a few hundred interpreter
+operations against perhaps fifty predicate calls. The loops that do it are
+therefore written flat rather than tidily: each triangle's vertices read once
+and unpacked, the adjacency and constraint lookups written out where they are
+used instead of behind an accessor, and the cavity crossed once where it used to
+be crossed five times. That is worth about twice the speed, and it is why those
+loops look the way they do. `tests/test_determinism.py` pins the meshes, so a
+further change of the same kind has to show it produces the same ones.
 
 **The predicates are compiled where they can be.** They are the innermost thing
 in the whole library, asked millions of times by a triangulation of any size, so
@@ -185,10 +204,14 @@ built if a compiler is present and skipped without complaint if not:
 ``OPENGL_EXTRUSIONS_NO_ACCEL=1`` forces the pure path. The test suite runs both
 and requires the same triangles out of each, down to the vertex.
 
-The triangulation's own topology is **not** vectorised. Walking to a point,
-growing a cavity, recovering an edge and flooding the regions are pointer-chasing
-over a mesh that changes as you go, so the speed available there is algorithmic
-— not repeating global work per inserted point — rather than in array operations.
+The triangulation's own topology is **not** vectorised, and cannot be. Walking to
+a point, growing a cavity, recovering an edge and flooding the regions are
+pointer-chasing over a mesh that changes as you go: each step depends on what the
+one before it did, so there is no array of them to operate on at once. The speed
+available there is in doing less per point, which is where the price above has
+come from and where the rest of it still sits — a mesh held in flat arrays with
+the insertion loop compiled against them is what would move it again, and that is
+a larger change than any made so far.
 
 ## Exactness
 

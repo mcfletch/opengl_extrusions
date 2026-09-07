@@ -83,6 +83,43 @@ class TestSegmentBookkeeping:
         t._split_segment(int(keys[0][0]), int(keys[0][1]))
         assert len(t._segment_arrays()[0]) == before + 1
 
+    def test_both_ways_of_testing_encroachment_answer_alike(self):
+        """The segment test loops for a short outline and uses arrays for a long
+        one, so the two have to name the same segment for the same point --
+        and the same *one* where a point encroaches on several, since which is
+        returned decides which gets split.
+        """
+        from opengl_extrusions import cdt
+
+        t = Triangulation.from_pslg(build_pslg([circle(1.0, 48)]))
+        segments = t._segments()
+        # A point just inside a vertex of the outline is within the diametral
+        # circle of both segments meeting there, which is what makes the order
+        # the two paths walk in observable.
+        probes = [(ax * 0.999, ay * 0.999) for _a, _b, ax, ay, _bx, _by in segments]
+        probes += [(x, y) for x in np.linspace(-1.2, 1.2, 9) for y in np.linspace(-1.2, 1.2, 9)]
+
+        def encroaching(point):
+            px, py = point
+            return [
+                (a, b)
+                for a, b, ax, ay, bx, by in segments
+                if (ax - px) * (bx - px) + (ay - py) * (by - py) < 0.0
+            ]
+
+        assert any(len(encroaching(p)) > 1 for p in probes), 'no probe tests the order'
+
+        loop_max = cdt._SEGMENT_LOOP_MAX
+        try:
+            cdt._SEGMENT_LOOP_MAX = 10**9  # always the loop
+            looped = [t._encroached_by(p) for p in probes]
+            cdt._SEGMENT_LOOP_MAX = 0  # always the arrays
+            arrayed = [t._encroached_by(p) for p in probes]
+        finally:
+            cdt._SEGMENT_LOOP_MAX = loop_max
+        assert looped == arrayed
+        assert any(found is not None for found in looped)
+
     def test_nothing_records_triangles_when_nobody_is_watching(self):
         """The record is read only as "what did this operation make", so keeping
         every triangle ever made is a leak that grows with refinement depth."""
