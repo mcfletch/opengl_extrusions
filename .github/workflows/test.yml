@@ -1,11 +1,17 @@
 name: tests
 
 on:
+  # This project's own develop, and pull requests. `release.yml` runs this on
+  # every push to main and then decides whether the version is worth
+  # publishing, so main is covered from there rather than by a `push:` trigger
+  # here -- which would run the whole matrix twice per push.
+  #
+  # Nothing here triggers on a sibling project's push: a CI run is for the
+  # change just made to this repository.
+  push:
+    branches: [develop]
   pull_request:
   workflow_dispatch:
-  # `release.yml` runs this on every push to main and then decides whether the
-  # version is worth publishing, so main is covered from there rather than by a
-  # `push:` trigger here -- which would run the whole matrix twice per push.
   workflow_call:
 
 jobs:
