@@ -43,15 +43,6 @@ from opengl_extrusions.contours import (
     rounded_rectangle,
     star,
 )
-from opengl_extrusions.nurbs import (
-    NurbsError,
-    NurbsMesh,
-    basis_derivatives,
-    basis_functions,
-    surface_grid,
-    surface_normals,
-    surface_points,
-)
 from opengl_extrusions.curves import (
     CurveError,
     arc_lengths,
@@ -70,6 +61,18 @@ from opengl_extrusions.frames import (
     path_frames,
 )
 from opengl_extrusions.mesh import Mesh, MeshError, Primitive
+from opengl_extrusions.nurbs import (
+    NurbsError,
+    NurbsMesh,
+    basis_derivatives,
+    basis_functions,
+    curve_points,
+    normals_at,
+    surface_at,
+    surface_grid,
+    surface_normals,
+    surface_points,
+)
 from opengl_extrusions.planar import (
     PSLG,
     DegenerateContourError,
@@ -144,6 +147,9 @@ __all__ = [
     'surface_points',
     'surface_normals',
     'surface_grid',
+    'surface_at',
+    'normals_at',
+    'curve_points',
     'basis_functions',
     'basis_derivatives',
     'NurbsMesh',

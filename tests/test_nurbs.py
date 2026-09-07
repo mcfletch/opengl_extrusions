@@ -5,6 +5,7 @@ import pytest
 
 from opengl_extrusions.nurbs import (
     NurbsError,
+    basis_derivatives,
     basis_functions,
     curve_points,
     normals_at,
@@ -25,11 +26,13 @@ def _flat_grid(nu=4, nv=4):
 def _open_knots(count, degree):
     """The clamped uniform knot vector for ``count`` control points."""
     interior = count - degree - 1
-    return np.concatenate([
-        np.zeros(degree + 1),
-        np.arange(1.0, interior + 1.0),
-        np.full(degree + 1, interior + 1.0),
-    ])
+    return np.concatenate(
+        [
+            np.zeros(degree + 1),
+            np.arange(1.0, interior + 1.0),
+            np.full(degree + 1, interior + 1.0),
+        ]
+    )
 
 
 class TestBasisFunctions:
@@ -103,9 +106,7 @@ class TestWeights:
         knots = _open_knots(5, 3)
         us, vs = np.linspace(0, 1, 6), np.linspace(0, 1, 4)
         plain = surface_points(control, knots, knots, 3, 3, us, vs)
-        weighted = surface_points(
-            control, knots, knots, 3, 3, us, vs, weights=np.full((5, 5), 2.0)
-        )
+        weighted = surface_points(control, knots, knots, 3, 3, us, vs, weights=np.full((5, 5), 2.0))
         assert np.allclose(plain, weighted)
 
     def test_a_quarter_circle_is_exact(self):
@@ -136,7 +137,13 @@ class TestWeights:
         knots = _open_knots(4, 3)
         with pytest.raises(NurbsError):
             surface_points(
-                control, knots, knots, 3, 3, np.array([0.5]), np.array([0.5]),
+                control,
+                knots,
+                knots,
+                3,
+                3,
+                np.array([0.5]),
+                np.array([0.5]),
                 weights=np.zeros((4, 4)),
             )
 
@@ -178,16 +185,112 @@ class TestDegenerateInput:
         control = _flat_grid(3, 3)
         with pytest.raises(NurbsError):
             surface_points(
-                control, _open_knots(3, 3), _open_knots(3, 3), 3, 3,
-                np.array([0.5]), np.array([0.5]),
+                control,
+                _open_knots(3, 3),
+                _open_knots(3, 3),
+                3,
+                3,
+                np.array([0.5]),
+                np.array([0.5]),
             )
 
     def test_a_control_net_that_is_not_a_grid_is_refused(self):
         with pytest.raises(NurbsError):
             surface_points(
-                np.zeros((4, 3)), _open_knots(4, 1), _open_knots(3, 1), 1, 1,
-                np.array([0.5]), np.array([0.5]),
+                np.zeros((4, 3)),
+                _open_knots(4, 1),
+                _open_knots(3, 1),
+                1,
+                1,
+                np.array([0.5]),
+                np.array([0.5]),
             )
+
+
+class TestRuledSurfaces:
+    """A degree-1 direction is a straight run between two rows, and has normals.
+
+    Its derivative comes from the degree-0 basis at the bottom of the Cox-de Boor
+    recursion, so a cylinder lofted between two rings, or any band between two
+    edges, is only shaded correctly if that bottom step is available.
+    """
+
+    def _band(self):
+        """A band in the xz plane, curved along u and straight along v."""
+        control = np.array(
+            [
+                [(0.0, 0.0, 0.0), (0.0, 0.0, 1.0)],
+                [(1.0, 1.0, 0.0), (1.0, 1.0, 1.0)],
+                [(2.0, 0.0, 0.0), (2.0, 0.0, 1.0)],
+            ]
+        )
+        return control, _open_knots(3, 2), np.array([0.0, 0.0, 1.0, 1.0])
+
+    def test_a_degree_zero_basis_is_one_on_its_own_span(self):
+        knots = np.array([0.0, 1.0, 2.0, 3.0])
+        rows = basis_functions(np.array([0.5, 1.5, 2.5]), knots, 0, 3)
+        assert np.array_equal(rows, np.eye(3))
+
+    def test_a_degree_zero_basis_has_no_slope(self):
+        knots = np.array([0.0, 1.0, 2.0, 3.0])
+        rows = basis_derivatives(np.array([0.5, 1.5, 2.5]), knots, 0, 3)
+        assert np.array_equal(rows, np.zeros((3, 3)))
+
+    def test_a_linear_direction_has_normals(self):
+        control, u_knots, v_knots = self._band()
+        normals = surface_normals(
+            control,
+            u_knots,
+            v_knots,
+            2,
+            1,
+            np.linspace(0.0, 1.0, 5),
+            np.linspace(0.0, 1.0, 3),
+        )
+        assert np.allclose(np.linalg.norm(normals, axis=-1), 1.0)
+
+    def test_the_normals_are_perpendicular_to_the_straight_direction(self):
+        # v runs along z, so every normal must be flat in z.
+        control, u_knots, v_knots = self._band()
+        normals = surface_normals(
+            control,
+            u_knots,
+            v_knots,
+            2,
+            1,
+            np.linspace(0.0, 1.0, 5),
+            np.linspace(0.0, 1.0, 3),
+        )
+        assert np.allclose(normals[..., 2], 0.0)
+
+    def test_a_rational_cylinder_is_round(self):
+        """The exact NURBS circle, lofted: every point one unit from the axis."""
+        root = np.sqrt(2) / 2
+        ring = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1), (1, 0)]
+        control = np.array([[(x, y, z) for z in (0.0, 1.0)] for x, y in ring])
+        weights = np.array([[w, w] for w in (1, root, 1, root, 1, root, 1, root, 1)])
+        mesh = surface_grid(
+            control,
+            np.array([0, 0, 0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1, 1], dtype=float),
+            np.array([0.0, 0.0, 1.0, 1.0]),
+            2,
+            1,
+            u_steps=33,
+            v_steps=2,
+            weights=weights,
+        )
+        radii = np.linalg.norm(mesh.positions[:, :2], axis=1)
+        assert np.allclose(radii, 1.0, atol=1e-6)
+
+    def test_a_grid_over_a_linear_direction_is_complete(self):
+        control, u_knots, v_knots = self._band()
+        mesh = surface_grid(control, u_knots, v_knots, 2, 1, u_steps=5, v_steps=3)
+        assert len(mesh.positions) == 15
+        assert len(mesh.indices) == 2 * 4 * 2
+
+    def test_a_curve_of_degree_zero_is_refused(self):
+        with pytest.raises(NurbsError):
+            curve_points(np.zeros((3, 2)), np.arange(4.0), 0, np.array([0.5]))
 
 
 class TestCurves:
