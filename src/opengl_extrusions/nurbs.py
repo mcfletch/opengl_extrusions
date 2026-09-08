@@ -68,21 +68,10 @@ class NurbsMesh:
     indices: np.ndarray
 
 
-def _check_knots(
-    knots: Knots, degree: int, count: int, name: str, lowest: int = 1
-) -> np.ndarray:
-    """The knot vector as an array, or a NurbsError saying what is wrong with it.
-
-    *lowest* is the smallest degree the caller can work at. The basis itself is
-    defined from degree 0 -- the piecewise-constant function that is one on the
-    span holding the parameter -- while a surface and a derivative each need a
-    degree above that to mean anything.
-    """
+def _check_knots(knots: Knots, degree: int, count: int, name: str, minimum: int = 1) -> np.ndarray:
     knots = np.asarray(knots, dtype=np.float64).ravel()
-    if degree < lowest:
-        raise NurbsError(
-            '%s degree must be at least %d, got %r' % (name, lowest, degree)
-        )
+    if degree < minimum:
+        raise NurbsError('%s degree must be at least %d, got %r' % (name, minimum, degree))
     if count <= degree:
         raise NurbsError(
             'a degree-%d %s needs more than %d control points, got %d'
@@ -111,9 +100,7 @@ def _spans(parameters: np.ndarray, knots: np.ndarray, degree: int, count: int) -
     return np.clip(span, degree, count - 1)
 
 
-def basis_functions(
-    parameters: Parameters, knots: Knots, degree: int, count: int
-) -> np.ndarray:
+def basis_functions(parameters: Parameters, knots: Knots, degree: int, count: int) -> np.ndarray:
     """``(len(parameters), count)`` of basis values, one row per parameter.
 
     Cox-de Boor, carried up degree by degree. Only ``degree + 1`` entries of any
@@ -121,11 +108,13 @@ def basis_functions(
     local change -- but the row is returned full-width so that the tensor
     product is a matrix multiply.
 
-    Degree 0 is the bottom of the recurrence: a row is one on the span holding
-    the parameter and zero elsewhere.
+    Degree 0 is the bottom of that recursion: one basis function per knot span,
+    each 1 on its own span and 0 elsewhere. A degree-1 basis's derivative is
+    built from it, which is what a ruled surface -- a cylinder between two rings,
+    a lofted band -- needs to have a normal at all.
     """
     parameters = np.atleast_1d(np.asarray(parameters, dtype=np.float64))
-    knots = _check_knots(knots, degree, count, 'basis', lowest=0)
+    knots = _check_knots(knots, degree, count, 'basis', minimum=0)
     span = _spans(parameters, knots, degree, count)
     clamped = np.clip(parameters, knots[degree], knots[count])
 
@@ -154,18 +143,18 @@ def basis_functions(
     return full
 
 
-def basis_derivatives(
-    parameters: Parameters, knots: Knots, degree: int, count: int
-) -> np.ndarray:
+def basis_derivatives(parameters: Parameters, knots: Knots, degree: int, count: int) -> np.ndarray:
     """``(len(parameters), count)`` of first derivatives of the basis.
 
     The derivative of a degree-p basis is a difference of two degree-(p-1) ones,
     scaled by the knot spans they cover, so it is the lower-degree basis this is
-    built from rather than a numerical difference. A linear basis differences
-    the piecewise-constant one, which is why :func:`basis_functions` goes down
-    to degree 0 and this stops at degree 1.
+    built from rather than a numerical difference. A degree-0 basis is constant
+    on each span, so its derivative is zero.
     """
-    knots = _check_knots(knots, degree, count, 'basis')
+    knots = _check_knots(knots, degree, count, 'basis', minimum=0)
+    if degree == 0:
+        parameters = np.atleast_1d(np.asarray(parameters, dtype=np.float64))
+        return np.zeros((len(parameters), count), dtype=np.float64)
     lower = basis_functions(parameters, knots[1:-1], degree - 1, count - 1)
     out = np.zeros((lower.shape[0], count), dtype=np.float64)
     for i in range(count):
@@ -190,9 +179,7 @@ def _prepare(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     control = np.asarray(control, dtype=np.float64)
     if control.ndim != 3 or control.shape[2] != 3:
-        raise NurbsError(
-            'the control net must be (u, v, 3) points, got %r' % (control.shape,)
-        )
+        raise NurbsError('the control net must be (u, v, 3) points, got %r' % (control.shape,))
     nu, nv = control.shape[0], control.shape[1]
     u_knots = _check_knots(u_knots, u_degree, nu, 'u')
     v_knots = _check_knots(v_knots, v_degree, nv, 'v')
@@ -202,8 +189,7 @@ def _prepare(
         weights = np.asarray(weights, dtype=np.float64)
         if weights.shape != (nu, nv):
             raise NurbsError(
-                'weights must match the control net %r, got %r'
-                % ((nu, nv), weights.shape)
+                'weights must match the control net %r, got %r' % ((nu, nv), weights.shape)
             )
         if np.any(weights <= 0):
             raise NurbsError('weights must be positive')
@@ -225,7 +211,6 @@ def _nudge(values: np.ndarray, low: float, high: float) -> np.ndarray:
     """Move parameters a little way into the domain, away from whichever end."""
     step = (high - low) * _LIMIT_STEP
     return np.where(values + step > high, values - step, values + step)
-
 
 
 def _rational(
@@ -316,13 +301,14 @@ def surface_normals(
         vs = np.atleast_1d(np.asarray(vs, dtype=np.float64))
         u_low, u_high = _domain_span(u_knots, u_degree, nu)
         v_low, v_high = _domain_span(v_knots, v_degree, nv)
-        pairs = np.stack([
-            _nudge(us[degenerate[0]], u_low, u_high),
-            _nudge(vs[degenerate[1]], v_low, v_high),
-        ], axis=-1)
-        unit[degenerate] = normals_at(
-            control, u_knots, v_knots, u_degree, v_degree, pairs, weights
+        pairs = np.stack(
+            [
+                _nudge(us[degenerate[0]], u_low, u_high),
+                _nudge(vs[degenerate[1]], v_low, v_high),
+            ],
+            axis=-1,
         )
+        unit[degenerate] = normals_at(control, u_knots, v_knots, u_degree, v_degree, pairs, weights)
     return unit
 
 
@@ -333,9 +319,7 @@ def _grid_indices(u_steps: int, v_steps: int) -> np.ndarray:
     corner = rows * v_steps + columns
     lower = np.stack([corner, corner + v_steps, corner + v_steps + 1], axis=-1)
     upper = np.stack([corner, corner + v_steps + 1, corner + 1], axis=-1)
-    return np.concatenate(
-        [lower.reshape(-1, 3), upper.reshape(-1, 3)]
-    ).astype(np.uint32)
+    return np.concatenate([lower.reshape(-1, 3), upper.reshape(-1, 3)]).astype(np.uint32)
 
 
 def surface_grid(
@@ -355,8 +339,7 @@ def surface_grid(
     """
     if u_steps < 2 or v_steps < 2:
         raise NurbsError(
-            'a grid needs at least two steps each way, got %r by %r'
-            % (u_steps, v_steps)
+            'a grid needs at least two steps each way, got %r by %r' % (u_steps, v_steps)
         )
     control, u_knots, v_knots, weights = _prepare(
         control, u_knots, v_knots, u_degree, v_degree, weights
@@ -365,17 +348,11 @@ def surface_grid(
     us = np.linspace(u_knots[u_degree], u_knots[nu], u_steps)
     vs = np.linspace(v_knots[v_degree], v_knots[nv], v_steps)
 
-    points = surface_points(
-        control, u_knots, v_knots, u_degree, v_degree, us, vs, weights
-    )
-    normals = surface_normals(
-        control, u_knots, v_knots, u_degree, v_degree, us, vs, weights
-    )
+    points = surface_points(control, u_knots, v_knots, u_degree, v_degree, us, vs, weights)
+    normals = surface_normals(control, u_knots, v_knots, u_degree, v_degree, us, vs, weights)
     u_fraction = np.linspace(0.0, 1.0, u_steps)
     v_fraction = np.linspace(0.0, 1.0, v_steps)
-    texcoords = np.stack(
-        np.meshgrid(u_fraction, v_fraction, indexing='ij'), axis=-1
-    )
+    texcoords = np.stack(np.meshgrid(u_fraction, v_fraction, indexing='ij'), axis=-1)
     return NurbsMesh(
         positions=points.reshape(-1, 3).astype(np.float32),
         normals=normals.reshape(-1, 3).astype(np.float32),
@@ -400,18 +377,18 @@ def curve_points(
     control = np.asarray(control, dtype=np.float64)
     if control.ndim != 2:
         raise NurbsError(
-            'a curve control polygon must be (n, components), got %r'
-            % (control.shape,)
+            'a curve control polygon must be (n, components), got %r' % (control.shape,)
         )
     count = control.shape[0]
+    if degree < 1:
+        raise NurbsError('a curve needs degree 1 or more, got %r' % (degree,))
     basis = basis_functions(ts, knots, degree, count)
     if weights is None:
         return basis @ control
     weights = np.asarray(weights, dtype=np.float64).ravel()
     if weights.shape != (count,):
         raise NurbsError(
-            'weights must match the control polygon (%d,), got %r'
-            % (count, weights.shape)
+            'weights must match the control polygon (%d,), got %r' % (count, weights.shape)
         )
     if np.any(weights <= 0):
         raise NurbsError('weights must be positive')
@@ -426,12 +403,12 @@ def _paired_basis(
     v_knots: np.ndarray,
     u_degree: int,
     v_degree: int,
-    uv: np.ndarray,
+    uv: Points,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Basis rows for each ``(u, v)`` pair, rather than for a grid."""
-    uv = np.asarray(uv, dtype=np.float64).reshape(-1, 2)
-    nu_basis = basis_functions(uv[:, 0], u_knots, u_degree, control.shape[0])
-    nv_basis = basis_functions(uv[:, 1], v_knots, v_degree, control.shape[1])
+    pairs = np.asarray(uv, dtype=np.float64).reshape(-1, 2)
+    nu_basis = basis_functions(pairs[:, 0], u_knots, u_degree, control.shape[0])
+    nv_basis = basis_functions(pairs[:, 1], v_knots, v_degree, control.shape[1])
     return nu_basis, nv_basis
 
 
@@ -452,9 +429,7 @@ def surface_at(
     control, u_knots, v_knots, weights = _prepare(
         control, u_knots, v_knots, u_degree, v_degree, weights
     )
-    nu_basis, nv_basis = _paired_basis(
-        control, u_knots, v_knots, u_degree, v_degree, uv
-    )
+    nu_basis, nv_basis = _paired_basis(control, u_knots, v_knots, u_degree, v_degree, uv)
     weighted = control * weights[:, :, None]
     numerator = np.einsum('nu,uvc,nv->nc', nu_basis, weighted, nv_basis)
     denominator = np.einsum('nu,uv,nv->n', nu_basis, weights, nv_basis)
@@ -480,12 +455,10 @@ def normals_at(
     control, u_knots, v_knots, weights = _prepare(
         control, u_knots, v_knots, u_degree, v_degree, weights
     )
-    uv = np.asarray(uv, dtype=np.float64).reshape(-1, 2)
-    nu_basis, nv_basis = _paired_basis(
-        control, u_knots, v_knots, u_degree, v_degree, uv
-    )
-    nu_deriv = basis_derivatives(uv[:, 0], u_knots, u_degree, control.shape[0])
-    nv_deriv = basis_derivatives(uv[:, 1], v_knots, v_degree, control.shape[1])
+    pairs = np.asarray(uv, dtype=np.float64).reshape(-1, 2)
+    nu_basis, nv_basis = _paired_basis(control, u_knots, v_knots, u_degree, v_degree, pairs)
+    nu_deriv = basis_derivatives(pairs[:, 0], u_knots, u_degree, control.shape[0])
+    nv_deriv = basis_derivatives(pairs[:, 1], v_knots, v_degree, control.shape[1])
     weighted = control * weights[:, :, None]
 
     def combine(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -510,12 +483,21 @@ def normals_at(
     if len(degenerate) and not _recursing:
         u_low, u_high = _domain_span(u_knots, u_degree, control.shape[0])
         v_low, v_high = _domain_span(v_knots, v_degree, control.shape[1])
-        nudged = np.stack([
-            _nudge(uv[degenerate, 0], u_low, u_high),
-            _nudge(uv[degenerate, 1], v_low, v_high),
-        ], axis=-1)
+        nudged = np.stack(
+            [
+                _nudge(pairs[degenerate, 0], u_low, u_high),
+                _nudge(pairs[degenerate, 1], v_low, v_high),
+            ],
+            axis=-1,
+        )
         unit[degenerate] = normals_at(
-            control, u_knots, v_knots, u_degree, v_degree, nudged, weights,
+            control,
+            u_knots,
+            v_knots,
+            u_degree,
+            v_degree,
+            nudged,
+            weights,
             _recursing=True,
         )
     return unit

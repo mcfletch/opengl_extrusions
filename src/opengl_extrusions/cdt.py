@@ -23,7 +23,21 @@ The mesh is stored as triangles plus a directory of directed edges. A triangle
 ``(a, b, c)`` owns the directed edges ``a->b``, ``b->c`` and ``c->a``, and its
 neighbour across one of them is whichever triangle owns the reverse. Adjacency is
 therefore a dictionary lookup and never needs repairing after a change: creating
-and destroying triangles maintains it by construction.
+and destroying triangles maintains it by construction. Vertices are plain float
+pairs rather than two-element arrays, because every one of them is read to be
+handed to a predicate and unboxing a NumPy scalar costs more than the arithmetic
+the predicate then does.
+
+The cost of all of this is dominated by how much interpreted work each inserted
+point takes, rather than by the arithmetic in the predicates: a point insertion
+walks to its triangle, grows a cavity, re-fans it and repairs the neighbourhood,
+and each of those steps is a loop over a handful of triangles. The loops here are
+therefore written flat -- the vertices of a triangle read once and unpacked, the
+adjacency and constraint lookups written out where they are used rather than
+called through an accessor -- which is worth roughly twice the speed of the same
+code written the tidy way. :mod:`opengl_extrusions.tests.test_determinism` pins
+the meshes this produces, so that a further change of the same kind has to show
+it makes the same ones.
 """
 
 from __future__ import annotations
@@ -31,7 +45,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from math import acos, degrees, sqrt
+from math import acos, degrees, isfinite, sqrt
 from typing import NamedTuple
 
 import numpy as np
@@ -69,6 +83,21 @@ _WALK_SLACK = 4
 #: is accepted as it stands. They settle in one or two passes; the cap keeps a
 #: pathological mesh from oscillating between them.
 _CAVITY_PASSES = 8
+
+#: How many boundary segments an encroachment test loops over before it
+#: switches to testing them all at once as arrays. Below this the array
+#: call overhead is the larger half of the work.
+_SEGMENT_LOOP_MAX = 64
+
+
+def _edge_key(a: int, b: int) -> tuple[int, int]:
+    """An undirected edge, as its two vertices in increasing order.
+
+    The ordering is written out rather than reached through ``min`` and ``max``:
+    this is asked several times per inserted point, and the two builtin calls
+    cost three times the comparison they wrap.
+    """
+    return (a, b) if a < b else (b, a)
 
 
 class TriangulationError(RuntimeError):
@@ -170,12 +199,16 @@ class Triangulation:
         if len(pts) and not np.isfinite(pts).all():
             raise NonFinitePointError('points contain a non-finite coordinate')
 
-        self._pts: list[np.ndarray] = [np.asarray(p, dtype=np.float64) for p in pts]
+        # Plain float pairs rather than two-element arrays: every predicate
+        # call unpacks its arguments, and unboxing a NumPy scalar costs more
+        # than the arithmetic the predicate then does with it.
+        self._pts: list[tuple[float, float]] = [(float(x), float(y)) for x, y in pts]
         self._user_count = len(self._pts)
         self._tri: list[list[int] | None] = []
         self._free: list[int] = []
         #: directed edge (u, v) -> index of the triangle having it in that order
         self._edge: dict[tuple[int, int], int] = {}
+        #: Constrained edges, each ordered by :func:`_edge_key`.
         self._constrained: set[tuple[int, int]] = set()
         self._segment_delta: dict[tuple[int, int], int] = {}
         #: ``_segment_delta`` as arrays. Dropped by :meth:`_invalidate_segments`
@@ -184,6 +217,9 @@ class Triangulation:
         #: have the same size, and a cache that could not tell them apart would
         #: refine against the graph before last.
         self._segment_cache: tuple[np.ndarray, np.ndarray] | None = None
+        #: The same segments as plain numbers, for the loop in
+        #: :meth:`_encroached_by` that a short outline is tested by.
+        self._segment_list: list[tuple[int, int, float, float, float, float]] | None = None
         self._winding: dict[int, int] = {}
         #: one triangle known to touch each vertex, for rotating around it
         self._vertex_tri: dict[int, int] = {}
@@ -210,7 +246,7 @@ class Triangulation:
         supers = self._add_super_triangle()
         seen: dict[tuple[float, float], int] = {}
         for v in range(self._user_count):
-            key = (float(self._pts[v][0]), float(self._pts[v][1]))
+            key = self._pts[v]
             if key in seen:
                 continue
             seen[key] = v
@@ -231,11 +267,10 @@ class Triangulation:
         centre = (low + high) * 0.5
         extent = float(np.max(high - low))
         radius = (extent if extent > 0 else 1.0) * 1e3
-        corners = []
-        for angle in (np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6):
-            corners.append(
-                np.array([centre[0] + radius * np.cos(angle), centre[1] + radius * np.sin(angle)])
-            )
+        corners = [
+            (float(centre[0] + radius * np.cos(angle)), float(centre[1] + radius * np.sin(angle)))
+            for angle in (np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6)
+        ]
         first = len(self._pts)
         self._pts.extend(corners)
         self._points_cache = None
@@ -294,8 +329,8 @@ class Triangulation:
         if len(held) < len(self._pts):
             # A vertex repeated in the input is represented by whichever copy
             # was inserted first; the others are the same point, not a loss.
-            places = {tuple(self._pts[v]) for v in held}
-            if any(tuple(p) not in places for p in self._pts):
+            places = {self._pts[v] for v in held}
+            if any(p not in places for p in self._pts):
                 return False
         loop = self._boundary_loop()
         if len(loop) < 3:
@@ -338,11 +373,11 @@ class Triangulation:
             self._add_triangle(hull[0], hull[i], hull[i + 1])
         self._last = self._any_triangle()
         on_hull = set(hull)
-        seen: set[tuple[float, float]] = {tuple(self._pts[v]) for v in hull}
+        seen: set[tuple[float, float]] = {self._pts[v] for v in hull}
         for v in range(len(self._pts)):
             if v in on_hull:
                 continue
-            place = tuple(self._pts[v])
+            place = self._pts[v]
             if place in seen:
                 continue
             seen.add(place)
@@ -457,7 +492,7 @@ class Triangulation:
 
     # -- point location ---------------------------------------------------
 
-    def _locate(self, p: np.ndarray, start: int = -1) -> int:
+    def _locate(self, p: tuple[float, float], start: int = -1) -> int:
         """The triangle containing ``p``, or -1 if it is outside the mesh.
 
         Walks from a nearby triangle toward the point, stepping across whichever
@@ -470,14 +505,15 @@ class Triangulation:
             t = self._any_triangle()
         if t < 0:
             return -1
-        verts: list[int] = []
-        for _ in range(_WALK_SLACK * len(self._tri) + 64):
-            verts = self._verts(t)
+        tri = self._tri
+        pts = self._pts
+        edge = self._edge
+        for _ in range(_WALK_SLACK * len(tri) + 64):
+            a, b, c = tri[t]  # type: ignore[misc]  # the walk stays on live triangles
             step = -1
-            for i in range(3):
-                u, v = verts[(i + 1) % 3], verts[(i + 2) % 3]
-                if orient2d(self._pts[u], self._pts[v], p) < 0:
-                    step = self.neighbour(t, i)
+            for u, v in ((b, c), (c, a), (a, b)):
+                if orient2d(pts[u], pts[v], p) < 0:
+                    step = edge.get((v, u), -1)
                     if step < 0:
                         return -1
                     break
@@ -491,8 +527,36 @@ class Triangulation:
 
     # -- insertion --------------------------------------------------------
 
-    def _cavity(self, p: np.ndarray, start: int) -> list[int]:
-        """The triangles that ``p`` replaces, and which it can be fanned to.
+    def _boundary(
+        self, p: tuple[float, float], cavity: list[int], member: set[int]
+    ) -> list[tuple[int, int, int]]:
+        """The cavity's outer edges, and which side of each ``p`` falls on.
+
+        An outer edge is one with no cavity triangle behind it. Each comes back
+        as ``(u, v, side)``: the edge, wound as the cavity sees it, and
+        :func:`orient2d` of ``p`` against it. Everything the corrections and the
+        fan below need to know is in that sign, so they read it from here rather
+        than walking the cavity again for it -- an insertion used to cross its
+        own cavity five times over, and the walk, not the arithmetic, is what
+        that cost.
+        """
+        tri = self._tri
+        edge = self._edge
+        pts = self._pts
+        out: list[tuple[int, int, int]] = []
+        for t in cavity:
+            a, b, c = tri[t]  # type: ignore[misc]  # cavity holds live triangles
+            for u, v in ((b, c), (c, a), (a, b)):
+                n = edge.get((v, u), -1)
+                if n >= 0 and n in member:
+                    continue
+                out.append((u, v, orient2d(pts[u], pts[v], p)))
+        return out
+
+    def _cavity(
+        self, p: tuple[float, float], start: int
+    ) -> tuple[list[int], list[tuple[int, int]]]:
+        """The triangles that ``p`` replaces, and the edges it is fanned to.
 
         Grown from the triangle containing ``p`` across every neighbour whose
         circumcircle contains it, stopping at constrained edges. Two corrections
@@ -506,25 +570,38 @@ class Triangulation:
         *Trim*: a cavity stopped by a constraint can end up with a boundary edge
         that ``p`` is behind rather than in front of. Fanning to that edge would
         produce an inside-out triangle, so the triangle owning it is put back.
+
+        Both are answers to ``p`` landing on or behind a boundary edge, so where
+        every edge has ``p`` strictly in front of it neither has anything to do
+        and the cavity is already star-shaped. That is the ordinary case -- a
+        refinement point placed inside a triangle -- and it is taken here without
+        the corrections being run at all.
         """
         cavity = [start]
         member = {start}
         queue = [start]
+        tri = self._tri
+        edge = self._edge
+        pts = self._pts
+        constrained = self._constrained
         while queue:
             t = queue.pop()
-            verts = self._verts(t)
-            for i in range(3):
-                n = self.neighbour(t, i)
+            a, b, c = tri[t]  # type: ignore[misc]  # queue holds live triangles
+            for u, v in ((b, c), (c, a), (a, b)):
+                n = edge.get((v, u), -1)
                 if n < 0 or n in member:
                     continue
-                u, v = verts[(i + 1) % 3], verts[(i + 2) % 3]
-                if self._is_constrained(u, v):
+                if ((u, v) if u < v else (v, u)) in constrained:
                     continue
-                nv = self._verts(n)
-                if incircle(self._pts[nv[0]], self._pts[nv[1]], self._pts[nv[2]], p) > 0:
+                nv = tri[n]
+                if incircle(pts[nv[0]], pts[nv[1]], pts[nv[2]], p) > 0:  # type: ignore[index]
                     member.add(n)
                     cavity.append(n)
                     queue.append(n)
+
+        edges = self._boundary(p, cavity, member)
+        if all(side > 0 for _u, _v, side in edges):
+            return cavity, [(u, v) for u, v, _side in edges]
 
         for _ in range(_CAVITY_PASSES):
             changed = self._absorb_split_edges(p, cavity, member)
@@ -539,9 +616,11 @@ class Triangulation:
             cavity = [start]
             member = {start}
             self._absorb_split_edges(p, cavity, member)
-        return cavity
+        # An edge the point lies on is being subdivided, not fanned to: the
+        # triangle it would make has no area.
+        return cavity, [(u, v) for u, v, side in self._boundary(p, cavity, member) if side != 0]
 
-    def _is_star_shaped(self, p: np.ndarray, cavity: list[int], member: set[int]) -> bool:
+    def _is_star_shaped(self, p: tuple[float, float], cavity: list[int], member: set[int]) -> bool:
         """Whether every boundary edge of the cavity can be fanned to ``p``."""
         for t in cavity:
             verts = self._verts(t)
@@ -555,7 +634,9 @@ class Triangulation:
                     return False
         return True
 
-    def _absorb_split_edges(self, p: np.ndarray, cavity: list[int], member: set[int]) -> bool:
+    def _absorb_split_edges(
+        self, p: tuple[float, float], cavity: list[int], member: set[int]
+    ) -> bool:
         """Pull in triangles across boundary edges that ``p`` sits on."""
         added = False
         index = 0
@@ -580,7 +661,7 @@ class Triangulation:
                     added = True
         return added
 
-    def _trim_invisible(self, p: np.ndarray, cavity: list[int], member: set[int]) -> bool:
+    def _trim_invisible(self, p: tuple[float, float], cavity: list[int], member: set[int]) -> bool:
         """Put back any cavity triangle with a boundary edge ``p`` cannot see."""
         trimmed = False
         while len(cavity) > 1:
@@ -617,20 +698,7 @@ class Triangulation:
             if self._pts[u][0] == p[0] and self._pts[u][1] == p[1]:
                 return False
 
-        cavity = self._cavity(p, t)
-        member = set(cavity)
-        boundary: list[tuple[int, int]] = []
-        for c in cavity:
-            verts = self._verts(c)
-            for i in range(3):
-                if self.neighbour(c, i) in member:
-                    continue
-                first, second = verts[(i + 1) % 3], verts[(i + 2) % 3]
-                # An edge the point lies on is being subdivided, not fanned to:
-                # the triangle it would make has no area.
-                if orient2d(self._pts[first], self._pts[second], p) == 0:
-                    continue
-                boundary.append((first, second))
+        cavity, boundary = self._cavity(p, t)
         winding = self._winding.get(cavity[0])
         for c in cavity:
             self._remove_triangle(c)
@@ -658,9 +726,10 @@ class Triangulation:
             caller never asked for, so it is refused rather than done quietly;
             insert the halves yourself if that is what you want.
         """
-        p = np.asarray(point, dtype=np.float64)
-        if not np.isfinite(p).all():
+        coords = np.asarray(point, dtype=np.float64)
+        if not np.isfinite(coords).all():
             raise NonFinitePointError('cannot add a non-finite point')
+        p = (float(coords[0]), float(coords[1]))
         t = self._locate(p)
         if t < 0:
             return -1
@@ -679,7 +748,7 @@ class Triangulation:
     # -- constraints ------------------------------------------------------
 
     def _is_constrained(self, a: int, b: int) -> bool:
-        return (min(a, b), max(a, b)) in self._constrained
+        return _edge_key(a, b) in self._constrained
 
     def insert_constraint(self, a: int, b: int) -> None:
         """Force the edge ``a``--``b`` into the mesh and hold it there.
@@ -703,12 +772,12 @@ class Triangulation:
         work = [(a, b)]
         while work:
             u, v = work.pop()
-            self._constrained.add((min(u, v), max(u, v)))
+            self._constrained.add(_edge_key(u, v))
             if self.has_edge(u, v):
                 continue
             crossed, left, right, through = self._crossed_by(u, v)
             if through >= 0:
-                self._constrained.discard((min(u, v), max(u, v)))
+                self._constrained.discard(_edge_key(u, v))
                 work.append((u, through))
                 work.append((through, v))
                 continue
@@ -838,7 +907,7 @@ class Triangulation:
         return None
 
     @staticmethod
-    def _between(a: np.ndarray, m: np.ndarray, b: np.ndarray) -> bool:
+    def _between(a: tuple[float, float], m: tuple[float, float], b: tuple[float, float]) -> bool:
         """Whether ``m`` lies strictly between ``a`` and ``b`` along their line."""
         return bool(
             min(a[0], b[0]) <= m[0] <= max(a[0], b[0])
@@ -896,41 +965,49 @@ class Triangulation:
         re-examining the whole mesh. Refinement inserts thousands of points, and
         beginning each repair from every triangle is what makes that quadratic.
         """
+        tri = self._tri
+        pts = self._pts
+        edge = self._edge
+        constrained = self._constrained
         if seed is None:
-            stack = [(t, i) for t in self.triangle_indices for i in range(3)]
+            stack = list(self.triangle_indices)
         else:
-            stack = [
-                (t, i)
-                for t in seed
-                if 0 <= t < len(self._tri) and self._tri[t] is not None
-                for i in range(3)
-            ]
+            stack = [t for t in seed if 0 <= t < len(tri) and tri[t] is not None]
         flips = 0
+        # A triangle at a time rather than an edge at a time: its three edges are
+        # tested against the one reading of its vertices, and a flip stops the
+        # reading being about this triangle any more, so the loop breaks there
+        # and puts both halves of the flipped pair back on to be read afresh.
         while stack:
-            t, i = stack.pop()
-            if self._tri[t] is None:
+            t = stack.pop()
+            verts = tri[t]
+            if verts is None:
                 continue
-            verts = self._verts(t)
-            u, v = verts[(i + 1) % 3], verts[(i + 2) % 3]
-            if self._is_constrained(u, v):
-                continue
-            n = self._edge.get((v, u), -1)
-            if n < 0:
-                continue
-            apex = self._apex(n, u, v)
-            if (
-                incircle(
-                    self._pts[verts[0]], self._pts[verts[1]], self._pts[verts[2]], self._pts[apex]
-                )
-                <= 0
-            ):
-                continue
-            if not self._flip(t, i, n, apex):
-                continue
-            flips += 1
-            for changed in (t, n):
-                if self._tri[changed] is not None:
-                    stack.extend((changed, k) for k in range(3))
+            a, b, c = verts
+            pa, pb, pc = pts[a], pts[b], pts[c]
+            for i, (u, v) in enumerate(((b, c), (c, a), (a, b))):
+                if ((u, v) if u < v else (v, u)) in constrained:
+                    continue
+                n = edge.get((v, u), -1)
+                if n < 0:
+                    continue
+                first, second, third = tri[n]  # type: ignore[misc]  # a live neighbour
+                if first != u and first != v:
+                    apex = first
+                elif second != u and second != v:
+                    apex = second
+                else:
+                    apex = third
+                if incircle(pa, pb, pc, pts[apex]) <= 0:
+                    continue
+                if not self._flip(t, i, n, apex):
+                    continue
+                flips += 1
+                if tri[t] is not None:
+                    stack.append(t)
+                if tri[n] is not None:
+                    stack.append(n)
+                break
         return flips
 
     def _flip(self, t: int, i: int, n: int, apex: int) -> bool:
@@ -1067,26 +1144,28 @@ class Triangulation:
 
     def _label_regions(self) -> None:
         """Flood the mesh from outside, adding up boundary crossings."""
-        self._winding = {}
+        winding: dict[int, int] = {}
+        self._winding = winding
+        tri = self._tri
+        edge = self._edge
+        delta_across = self._delta_across
         queue: list[int] = []
         for t in self.triangle_indices:
-            verts = self._verts(t)
-            for i in range(3):
-                if self.neighbour(t, i) < 0:
-                    u, v = verts[(i + 1) % 3], verts[(i + 2) % 3]
-                    self._winding[t] = self._delta_across(u, v)
+            a, b, c = tri[t]  # type: ignore[misc]  # a live triangle
+            for u, v in ((b, c), (c, a), (a, b)):
+                if (v, u) not in edge:
+                    winding[t] = delta_across(u, v)
                     queue.append(t)
                     break
         while queue:
             t = queue.pop()
-            here = self._winding[t]
-            verts = self._verts(t)
-            for i in range(3):
-                n = self.neighbour(t, i)
-                if n < 0 or n in self._winding:
+            here = winding[t]
+            a, b, c = tri[t]  # type: ignore[misc]  # queued triangles are live
+            for u, v in ((b, c), (c, a), (a, b)):
+                n = edge.get((v, u), -1)
+                if n < 0 or n in winding:
                     continue
-                u, v = verts[(i + 1) % 3], verts[(i + 2) % 3]
-                self._winding[n] = here + self._delta_across(v, u)
+                winding[n] = here + delta_across(v, u)
                 queue.append(n)
 
     def _selected(self) -> np.ndarray:
@@ -1190,15 +1269,30 @@ class Triangulation:
         max_area: float | None,
         skip: set[tuple[int, int, int]],
     ) -> bool:
-        """Whether this triangle is kept, wanted, and misses a target."""
-        if self._tri[t] is None:
+        """Whether this triangle is kept, wanted, and misses a target.
+
+        Asked of every triangle that comes off the work list, and of every one a
+        placement makes, so it reads what it needs directly rather than through
+        the accessors: the area in particular is two subtractions and a cross
+        product, which is less work than fetching the three vertices to do it.
+        """
+        verts = self._tri[t]
+        if verts is None:
             return False
         if not WINDING_RULES[self._rule](self._winding.get(t, 0)):
             return False
-        if self._signature(t) in skip:
+        # The skip set holds the triangles refinement has given up on. It is
+        # emptied whenever a point goes in, so it is nearly always empty, and
+        # ordering the vertices to look one up is worth avoiding until it is not.
+        if skip and self._signature(t) in skip:
             return False
-        if max_area is not None and self._area(t) > max_area:
-            return True
+        if max_area is not None:
+            pts = self._pts
+            a, b, c = pts[verts[0]], pts[verts[1]], pts[verts[2]]
+            ax, ay = a
+            area = abs((b[0] - ax) * (c[1] - ay) - (b[1] - ay) * (c[0] - ax)) * 0.5
+            if area > max_area:
+                return True
         return min_angle is not None and self._smallest_angle(t) < min_angle
 
     def _failing_triangles(
@@ -1259,7 +1353,7 @@ class Triangulation:
                 smallest = angle
         return smallest
 
-    def _circumcentre(self, t: int) -> np.ndarray | None:
+    def _circumcentre(self, t: int) -> tuple[float, float] | None:
         a, b, c = (self._pts[v] for v in self._verts(t))
         bx, by = b[0] - a[0], b[1] - a[1]
         cx, cy = c[0] - a[0], c[1] - a[1]
@@ -1268,23 +1362,32 @@ class Triangulation:
             return None
         ux = (cy * (bx * bx + by * by) - by * (cx * cx + cy * cy)) / d
         uy = (bx * (cx * cx + cy * cy) - cx * (bx * bx + by * by)) / d
-        centre = np.array([a[0] + ux, a[1] + uy], dtype=np.float64)
-        return centre if np.isfinite(centre).all() else None
+        cx, cy = a[0] + ux, a[1] + uy
+        return (cx, cy) if isfinite(cx) and isfinite(cy) else None
 
-    def _encroached_by(self, point: np.ndarray) -> tuple[int, int] | None:
+    def _encroached_by(self, point: tuple[float, float]) -> tuple[int, int] | None:
         """A boundary segment whose diametral circle contains ``point``.
 
         Splitting such a segment before inserting the point is what keeps a
         refinement from crowding vertices against an outline it must preserve.
 
-        Every segment is tested at once, against arrays that are rebuilt only
-        when the segment set changes. Refinement asks this of every candidate it
-        places, so a Python loop over the segments here -- or anything that
-        touched every *vertex* -- would cost more than the refinement.
+        Refinement asks this of every candidate point it places, so the segments
+        are held ready rather than gathered per call. Which way they are tested
+        depends on how many there are: an array operation on a handful of
+        segments costs more in call overhead than the arithmetic it saves, and
+        an outline of a few dozen edges is the ordinary case. Past
+        :data:`_SEGMENT_LOOP_MAX` the array pass wins and is used instead.
         """
-        keys, ends = self._segment_arrays()
-        if not len(keys):
+        segments = self._segments()
+        if not segments:
             return None
+        px, py = point
+        if len(segments) <= _SEGMENT_LOOP_MAX:
+            for a, b, ax, ay, bx, by in segments:
+                if (ax - px) * (bx - px) + (ay - py) * (by - py) < 0.0:
+                    return a, b
+            return None
+        keys, ends = self._segment_arrays()
         first = ends[:, 0, :] - point
         second = ends[:, 1, :] - point
         inside = np.flatnonzero(np.einsum('ij,ij->i', first, second) < 0.0)
@@ -1294,8 +1397,18 @@ class Triangulation:
         return int(a), int(b)
 
     def _invalidate_segments(self) -> None:
-        """Forget the cached segment arrays. Called wherever the set changes."""
+        """Forget the cached segments. Called wherever the segment set changes."""
         self._segment_cache = None
+        self._segment_list = None
+
+    def _segments(self) -> list[tuple[int, int, float, float, float, float]]:
+        """The boundary segments as vertex pairs with their ends' coordinates."""
+        if self._segment_list is None:
+            self._segment_list = [
+                (a, b, self._pts[a][0], self._pts[a][1], self._pts[b][0], self._pts[b][1])
+                for a, b in self._segment_delta
+            ]
+        return self._segment_list
 
     def _segment_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """The boundary segments as arrays: their vertex pairs and their ends.
@@ -1323,9 +1436,10 @@ class Triangulation:
         if delta is None:  # pragma: no cover - caller supplies a live key
             return False
         self._invalidate_segments()
-        midpoint = (self._pts[a] + self._pts[b]) * 0.5
+        pa, pb = self._pts[a], self._pts[b]
+        midpoint = ((pa[0] + pb[0]) * 0.5, (pa[1] + pb[1]) * 0.5)
         outer, self._created = self._created, []
-        self._constrained.discard((a, b))
+        self._constrained.discard(_edge_key(a, b))
         v = len(self._pts)
         self._pts.append(midpoint)
         self._points_cache = None
@@ -1334,7 +1448,7 @@ class Triangulation:
             self._pts.pop()
             self._points_cache = None
             self._segment_delta[(a, b)] = delta
-            self._constrained.add((a, b))
+            self._constrained.add(_edge_key(a, b))
             return False
         made = list(self._last_inserted)
         for lo, hi in ((min(a, v), max(a, v)), (min(v, b), max(v, b))):
@@ -1350,7 +1464,7 @@ class Triangulation:
         self._created = outer
         return True
 
-    def _insert_refinement_point(self, centre: np.ndarray) -> bool:
+    def _insert_refinement_point(self, centre: tuple[float, float]) -> bool:
         """Place a circumcentre, if it lands somewhere the region wants it."""
         t = self._locate(centre)
         if t < 0:

@@ -358,10 +358,7 @@ mesh = surface_grid(control, u_knots, v_knots, 3, 3, u_steps=32, v_steps=32)
 ```
 
 `control` is a `(u, v, 3)` grid of control points; each knot vector holds
-`len(control_axis) + degree + 1` non-decreasing values. The two directions take
-their degrees separately, and either may be 1: a cylinder is a rational
-quadratic around and a straight line along, and so is any lathed or swept
-profile. `weights` is one
+`len(control_axis) + degree + 1` non-decreasing values. `weights` is one
 positive number per control point --- the *rational* in NURBS, and what lets a
 NURBS circle be a circle rather than an approximation of one. Equal weights give
 the same surface as none.
@@ -380,11 +377,15 @@ knots, degree, ts, weights=None)` is the one-dimensional case, for control
 polygons of any component count: a trimming curve's components are `(u, v)`
 rather than a position.
 
+A direction may be degree 1: a surface that runs straight between two rows of
+control points --- a cylinder lofted between two rings, a band between two edges
+--- is evaluated and shaded like any other.
+
 `basis_functions(parameters, knots, degree, count)` and `basis_derivatives(...)`
 are the basis itself, a row per parameter, for a caller building something these
-functions do not cover. The basis is defined from degree 0 --- one on the knot
-span holding the parameter, zero elsewhere --- and its derivative from degree 1,
-since a linear basis differences the piecewise-constant one.
+functions do not cover. Both take degree 0, one basis function per knot span,
+which is where the Cox-de Boor recursion bottoms out; a surface or a curve needs
+degree 1 or more.
 
 ## What comes back
 
@@ -471,7 +472,7 @@ And, from `opengl_extrusions.tangents`:
 | `SweepError` | a path of fewer than two distinct points; caps asked for where they cannot be built |
 | `FrameError` | a path parallel to `up` under `frames='up'` |
 | `CurveError` | too few control points, a non-positive tolerance |
-| `NurbsError` | a knot vector that does not match the control net, a degree the net is too small for, a non-positive weight, a grid of fewer than two steps |
+| `NurbsError` | a knot vector that does not match the control net, a degree the net is too small for, a surface or curve of degree below 1, a non-positive weight, a grid of fewer than two steps |
 | `MeshError` | a mesh that could not be drawn — mismatched attributes, an index out of range, vertices with no triangles, a singular transform, a material index nothing defines |
 | `TriangulationError` | a constraint crossing another constraint |
 | `NonFinitePointError` | a NaN or an infinity anywhere |
