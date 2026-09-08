@@ -5,6 +5,7 @@ import pytest
 
 from opengl_extrusions.nurbs import (
     NurbsError,
+    basis_derivatives,
     basis_functions,
     curve_points,
     normals_at,
@@ -54,6 +55,36 @@ class TestBasisFunctions:
         with pytest.raises(NurbsError):
             basis_functions(np.array([0.0]), np.arange(4.0), 3, 6)
 
+    def test_degree_zero_is_the_span_it_falls_in(self):
+        """The piecewise-constant basis: one span holds the parameter, and it
+        holds all of it. This is the basis a linear derivative is a difference
+        of, so it has to be available in its own right."""
+        knots = np.array([0.0, 1.0, 2.0, 3.0])
+        rows = basis_functions(np.array([0.5, 1.5, 2.5]), knots, 0, 3)
+        assert np.allclose(rows, np.eye(3))
+
+
+class TestBasisDerivatives:
+    @pytest.mark.parametrize('degree', [1, 2, 3])
+    def test_they_match_a_finite_difference(self, degree):
+        """The derivative is built from the lower-degree basis rather than
+        differenced, so a difference is an independent check of it."""
+        count = degree + 4
+        knots = _open_knots(count, degree)
+        # Away from the knots themselves, where the derivative steps.
+        parameters = np.linspace(knots[degree], knots[count], 61)[3:-3] + 0.017
+        step = 1e-6
+        exact = basis_derivatives(parameters, knots, degree, count)
+        ahead = basis_functions(parameters + step, knots, degree, count)
+        behind = basis_functions(parameters - step, knots, degree, count)
+        assert np.allclose(exact, (ahead - behind) / (2 * step), atol=1e-5)
+
+    def test_they_sum_to_zero(self):
+        """The basis sums to one everywhere, so its derivative sums to nothing."""
+        knots = _open_knots(6, 1)
+        rows = basis_derivatives(np.linspace(0.1, 3.9, 20), knots, 1, 6)
+        assert np.allclose(rows.sum(axis=1), 0.0, atol=1e-9)
+
 
 class TestAPlanarSurface:
     """A flat control net has to come back flat, whatever the degree."""
@@ -85,14 +116,23 @@ class TestAPlanarSurface:
         assert np.allclose(points[0, 0], control[0, 0])
         assert np.allclose(points[-1, -1], control[-1, -1])
 
-    def test_the_normal_is_the_plane_normal(self):
-        control = _flat_grid(5, 5)
-        knots = _open_knots(5, 3)
-        normals = surface_normals(
-            control, knots, knots, 3, 3, np.linspace(0, 1, 5), np.linspace(0, 1, 5)
-        )
+    @pytest.mark.parametrize('degree', [1, 2, 3])
+    def test_the_normal_is_the_plane_normal(self, degree):
+        control = _flat_grid(degree + 2, degree + 2)
+        knots = _open_knots(degree + 2, degree)
+        ends = np.linspace(knots[degree], knots[degree + 2], 5)
+        normals = surface_normals(control, knots, knots, degree, degree, ends, ends)
         assert np.allclose(np.abs(normals[..., 1]), 1.0, atol=1e-6)
         assert np.allclose(np.linalg.norm(normals, axis=-1), 1.0, atol=1e-6)
+
+    def test_a_direction_can_be_linear(self):
+        """A surface ruled along one direction and curved along the other --
+        a lathe, a swept profile, the common shape of an extrusion."""
+        control = _flat_grid(2, 5)
+        mesh = surface_grid(
+            control, _open_knots(2, 1), _open_knots(5, 3), 1, 3, u_steps=4, v_steps=6
+        )
+        assert np.allclose(np.abs(mesh.normals[..., 1]), 1.0, atol=1e-6)
 
 
 class TestWeights:

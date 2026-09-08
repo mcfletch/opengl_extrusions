@@ -68,10 +68,21 @@ class NurbsMesh:
     indices: np.ndarray
 
 
-def _check_knots(knots: Knots, degree: int, count: int, name: str) -> np.ndarray:
+def _check_knots(
+    knots: Knots, degree: int, count: int, name: str, lowest: int = 1
+) -> np.ndarray:
+    """The knot vector as an array, or a NurbsError saying what is wrong with it.
+
+    *lowest* is the smallest degree the caller can work at. The basis itself is
+    defined from degree 0 -- the piecewise-constant function that is one on the
+    span holding the parameter -- while a surface and a derivative each need a
+    degree above that to mean anything.
+    """
     knots = np.asarray(knots, dtype=np.float64).ravel()
-    if degree < 1:
-        raise NurbsError('%s degree must be at least 1, got %r' % (name, degree))
+    if degree < lowest:
+        raise NurbsError(
+            '%s degree must be at least %d, got %r' % (name, lowest, degree)
+        )
     if count <= degree:
         raise NurbsError(
             'a degree-%d %s needs more than %d control points, got %d'
@@ -109,9 +120,12 @@ def basis_functions(
     row are non-zero -- the local support that makes moving one control point a
     local change -- but the row is returned full-width so that the tensor
     product is a matrix multiply.
+
+    Degree 0 is the bottom of the recurrence: a row is one on the span holding
+    the parameter and zero elsewhere.
     """
     parameters = np.atleast_1d(np.asarray(parameters, dtype=np.float64))
-    knots = _check_knots(knots, degree, count, 'basis')
+    knots = _check_knots(knots, degree, count, 'basis', lowest=0)
     span = _spans(parameters, knots, degree, count)
     clamped = np.clip(parameters, knots[degree], knots[count])
 
@@ -147,7 +161,9 @@ def basis_derivatives(
 
     The derivative of a degree-p basis is a difference of two degree-(p-1) ones,
     scaled by the knot spans they cover, so it is the lower-degree basis this is
-    built from rather than a numerical difference.
+    built from rather than a numerical difference. A linear basis differences
+    the piecewise-constant one, which is why :func:`basis_functions` goes down
+    to degree 0 and this stops at degree 1.
     """
     knots = _check_knots(knots, degree, count, 'basis')
     lower = basis_functions(parameters, knots[1:-1], degree - 1, count - 1)

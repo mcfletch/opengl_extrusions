@@ -358,7 +358,10 @@ mesh = surface_grid(control, u_knots, v_knots, 3, 3, u_steps=32, v_steps=32)
 ```
 
 `control` is a `(u, v, 3)` grid of control points; each knot vector holds
-`len(control_axis) + degree + 1` non-decreasing values. `weights` is one
+`len(control_axis) + degree + 1` non-decreasing values. The two directions take
+their degrees separately, and either may be 1: a cylinder is a rational
+quadratic around and a straight line along, and so is any lathed or swept
+profile. `weights` is one
 positive number per control point --- the *rational* in NURBS, and what lets a
 NURBS circle be a circle rather than an approximation of one. Equal weights give
 the same surface as none.
@@ -379,7 +382,9 @@ rather than a position.
 
 `basis_functions(parameters, knots, degree, count)` and `basis_derivatives(...)`
 are the basis itself, a row per parameter, for a caller building something these
-functions do not cover.
+functions do not cover. The basis is defined from degree 0 --- one on the knot
+span holding the parameter, zero elsewhere --- and its derivative from degree 1,
+since a linear basis differences the piecewise-constant one.
 
 ## What comes back
 
