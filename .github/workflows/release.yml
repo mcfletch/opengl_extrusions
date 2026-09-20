@@ -73,17 +73,22 @@ jobs:
   # what a platform with no wheel falls back to, and it builds from source --
   # which needs a compiler for the accelerator, and works without one.
   #
-  # What these three runners actually produce, since the label does not say:
+  # What these four runners actually produce, since the label does not say:
   #
   #   ubuntu-latest    x86_64  manylinux and musllinux
-  #   macos-latest     arm64   Apple silicon only -- `macos-latest` is macOS 26
-  #                            Arm64, so no Intel Mac wheel is built here
+  #   macos-latest     arm64   Apple silicon -- `macos-latest` is macOS 26 Arm64
+  #   macos-15-intel   x86_64  the Intel Macs, which `macos-latest` does not
+  #                            build for and which run the arm64 wheel through
+  #                            no translation: there is no Rosetta for a Python
+  #                            extension module
   #   windows-latest   x86_64  win32 and win_amd64
   #
-  # Linux arm64 (`ubuntu-24.04-arm`) and Intel macOS (`macos-26-intel`) are
-  # available as runners and are not used: each is a row that costs build
-  # minutes, and neither platform has been asked for. Adding a row is all it
-  # takes -- cibuildwheel builds natively for whichever machine it is on.
+  # cibuildwheel builds natively for whichever machine it is on, so a platform
+  # is a row and nothing else. `macos-13`, the Intel label these runners
+  # replace, is retired and a job asking for one waits out GitHub's queue limit
+  # and is cancelled; `macos-15-intel` and `macos-26-intel` are the labels that
+  # answer. Linux arm64 (`ubuntu-24.04-arm`) is available and unused: it is a
+  # row that costs build minutes and nobody has asked for that platform.
   wheels:
     name: wheels · ${{ matrix.os }}
     needs: version
@@ -92,7 +97,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
