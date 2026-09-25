@@ -16,7 +16,8 @@ import sys
 import numpy as np
 import pytest
 
-from opengl_extrusions import extrude, lathe, polycylinder, spiral
+from opengl_extrusions import extrude, lathe, polycylinder, screw, spiral
+from opengl_extrusions.sweep import sweep
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
 
@@ -85,8 +86,6 @@ class TestStraightExtrusion:
         captured = gle.capture_extrusion(
             SQUARE, SQUARE_NORMALS, path, join='raw', cap=False, closed=True
         )
-        from opengl_extrusions.sweep import sweep
-
         ours = sweep(
             mirrored(SQUARE), path, caps=False, join='raw', path_ends='construction', up=(0, 1, 0)
         )
@@ -203,8 +202,6 @@ class TestScrew:
         )
 
     def test_our_screw_sweeps_the_same_surface(self, gle):
-        from opengl_extrusions import screw
-
         section = np.array([(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5)])
         normals = np.array([(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)])
         captured = gle.capture_screw(

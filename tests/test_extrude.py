@@ -8,8 +8,8 @@ failure says the geometry is wrong rather than that it changed.
 import numpy as np
 import pytest
 
-from opengl_extrusions import circle, extrude, rectangle
-from opengl_extrusions.mesh import Mesh
+from opengl_extrusions import circle, extrude, rectangle, screw
+from opengl_extrusions.mesh import Mesh, MeshError, Primitive
 from opengl_extrusions.sweep import SweepError
 
 STRAIGHT = [(0, 0, 0), (0, 0, 1), (0, 0, 2), (0, 0, 3)]
@@ -182,8 +182,6 @@ class TestCapsAuto:
             extrude(circle(1.0, 8), STRAIGHT, caps='maybe')
 
     def test_a_screw_defaults_to_auto_like_the_others(self):
-        from opengl_extrusions import screw
-
         mesh = screw(rectangle(0.4, 0.4), start_z=0, end_z=1, twist=0.5, closed_contour=False)
         assert mesh.triangle_count > 0
 
@@ -548,8 +546,6 @@ class TestScaleIndependence:
 
 class TestValidateCatchesSilentEmptiness:
     def test_a_triangle_primitive_with_vertices_and_no_indices_is_refused(self):
-        from opengl_extrusions.mesh import MeshError, Primitive
-
         p = Primitive(
             {'POSITION': np.zeros((6, 3), dtype=np.float32)}, np.zeros(0, dtype=np.uint32)
         )
@@ -557,8 +553,6 @@ class TestValidateCatchesSilentEmptiness:
             p.validate()
 
     def test_a_primitive_with_neither_vertices_nor_indices_is_accepted(self):
-        from opengl_extrusions.mesh import Primitive
-
         Primitive(
             {'POSITION': np.zeros((0, 3), dtype=np.float32)}, np.zeros(0, dtype=np.uint32)
         ).validate()

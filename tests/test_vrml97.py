@@ -3,7 +3,8 @@
 import numpy as np
 import pytest
 
-from opengl_extrusions import circle, extrude, polycylinder
+from opengl_extrusions import catmull_rom, circle, extrude, polycylinder
+from opengl_extrusions.mesh import Mesh
 from opengl_extrusions.tangents import (
     generate_tangents,
     levels_of_detail,
@@ -348,15 +349,11 @@ class TestCollider:
         assert len(collider.positions) < mesh.vertex_count
 
     def test_an_empty_mesh_makes_an_empty_collider(self):
-        from opengl_extrusions.mesh import Mesh
-
         collider = to_collider(Mesh([]))
         assert len(collider.positions) == 0
         assert not collider.watertight
 
     def test_a_swept_spline_collides(self):
-        from opengl_extrusions import catmull_rom
-
         path = catmull_rom([(0, 0, 0), (2, 1, 0), (4, 0, 1)], tolerance=1e-2)
         collider = to_collider(extrude(circle(0.3, 12), path, frames='rmf'))
         assert collider.watertight

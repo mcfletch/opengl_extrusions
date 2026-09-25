@@ -112,11 +112,11 @@ class Capture:
 def _require_gl():
     """Import the GL machinery, or say clearly what is missing."""
     try:
-        from OpenGL import GL, GLE
+        from OpenGL import GL, GLE  # noqa: PLC0415 the optional gle extra
     except ImportError as error:
         raise GLEUnavailable('PyOpenGL with GLE support is needed: %s' % error) from error
     try:
-        import glfw
+        import glfw  # noqa: PLC0415 the optional gle extra
     except ImportError as error:
         raise GLEUnavailable('glfw is needed to open a context: %s' % error) from error
     if not hasattr(GLE, 'glePolyCone'):  # pragma: no cover - odd builds

@@ -119,7 +119,7 @@ def is_blank(path: Path) -> bool:
     A figure that draws nothing is the failure this script exists to catch: it
     costs nothing to notice here and is easy to miss in a directory listing.
     """
-    from PIL import Image
+    from PIL import Image  # noqa: PLC0415 Pillow is not a dependency here
 
     with Image.open(path) as handle:
         return handle.convert('L').getextrema()[1] <= 2
@@ -174,7 +174,7 @@ def capture(name: str, demos: Path, into: Path, bootstrap: Path) -> Path:
 
 
 def _downsample(path: Path) -> None:
-    from PIL import Image
+    from PIL import Image  # noqa: PLC0415 Pillow is not a dependency here
 
     with Image.open(path) as handle:
         if handle.size == (OUTPUT_SIZE, OUTPUT_SIZE):

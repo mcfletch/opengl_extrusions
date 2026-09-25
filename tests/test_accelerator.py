@@ -9,7 +9,10 @@ These run both paths over the same inputs -- including the degenerate ones the
 filter is supposed to decline -- and require identical results.
 """
 
+import json
 import os
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -17,6 +20,7 @@ import pytest
 from opengl_extrusions import predicates
 from opengl_extrusions.predicates import (
     ACCELERATED,
+    NonFinitePointError,
     exact_incircle,
     exact_orient2d,
 )
@@ -97,8 +101,6 @@ class TestTheContract:
         assert native.incircle((1, 1), (1, 1), (1, 1), (1, 1)) == 0
 
     def test_a_non_finite_coordinate_is_refused_by_both(self):
-        from opengl_extrusions.predicates import NonFinitePointError
-
         with pytest.raises(ValueError):
             native.orient2d((0, 0), (1, 0), (np.nan, 1))
         with pytest.raises(NonFinitePointError):
@@ -115,10 +117,6 @@ class TestTheWholeTessellatorAgrees:
         the module is imported and the modules that use it hold their own
         references to the functions.
         """
-        import json
-        import subprocess
-        import sys
-
         script = (
             'import json, numpy as np\n'
             'from opengl_extrusions import star, tessellate\n'

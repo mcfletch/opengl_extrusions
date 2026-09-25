@@ -120,6 +120,7 @@ select = [
     "DTZ",  # a datetime says which timezone it is in
     # No exec, eval, pickle load, tar extractall or urlopen of an unchecked URL
     "S102", "S202", "S301", "S307", "S310",
+    "PLC0415",  # imports at the top of the module, but for optional dependencies
 ]
 ignore = [
     "E501",   # line too long: held by the formatter's line-length, above

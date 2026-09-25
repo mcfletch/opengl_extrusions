@@ -12,13 +12,15 @@ import pytest
 from opengl_extrusions import (
     Triangulation,
     build_pslg,
+    cdt,
     circle,
     convex_hull,
+    planar,
     polygon_area,
     tessellate,
 )
 from opengl_extrusions.cdt import TriangulationError
-from opengl_extrusions.planar import MAX_SPLIT_PASSES
+from opengl_extrusions.planar import MAX_SPLIT_PASSES, PSLG
 
 
 def square(size=4.0):
@@ -57,8 +59,6 @@ class TestSegmentBookkeeping:
     def test_reclassifying_with_a_different_graph_takes_effect(self):
         """Two graphs can have the same edge count over the same points and
         different edges; a cache keyed on the counts cannot tell them apart."""
-        from opengl_extrusions.planar import PSLG
-
         points = np.array([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)])
         first = build_pslg([points])
         t = Triangulation.from_pslg(first)
@@ -89,8 +89,6 @@ class TestSegmentBookkeeping:
         and the same *one* where a point encroaches on several, since which is
         returned decides which gets split.
         """
-        from opengl_extrusions import cdt
-
         t = Triangulation.from_pslg(build_pslg([circle(1.0, 48)]))
         segments = t._segments()
         # A point just inside a vertex of the outline is within the diametral
@@ -321,8 +319,6 @@ class TestGraphSettling:
         """The cap exists so pathological input yields a slightly imperfect
         graph rather than an endless loop. What a caller cannot do today is find
         out which of the two they got."""
-        import opengl_extrusions.planar as planar
-
         monkeypatch.setattr(planar, 'MAX_SPLIT_PASSES', 0)
         graph = build_pslg([circle(1.0, 8), circle(1.0, 8)[::-1] + 0.3])
         assert not graph.settled
