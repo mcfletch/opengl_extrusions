@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import struct
 from dataclasses import dataclass, field
 from typing import Any
@@ -659,9 +660,21 @@ class Mesh:
         return bytes(out)
 
     def to_glb(self, path: str) -> None:
-        """Write the mesh to a ``.glb`` file."""
-        with open(path, 'wb') as handle:
-            handle.write(self.to_glb_bytes())
+        """Write the mesh to a ``.glb`` file.
+
+        The file is written beside ``path`` and renamed over it, so a write
+        that fails leaves whatever was at ``path`` before.
+        """
+        data = self.to_glb_bytes()
+        partial = path + '.partial'
+        try:
+            with open(partial, 'wb') as handle:
+                handle.write(data)
+            os.replace(partial, path)
+        except BaseException:
+            if os.path.exists(partial):
+                os.unlink(partial)
+            raise
 
 
 def _append_accessor(

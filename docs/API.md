@@ -449,7 +449,7 @@ accepts them directly with or without OpenGLContext.
 | `primitive.signed_volume()` | what it encloses; negative means inside out |
 | `primitive.surface_area()` | total area |
 | `mesh.smoothed(crease_angle)` | average the normals of seams shallower than the angle, then weld |
-| `mesh.to_gltf()`, `mesh.to_glb(path)`, `mesh.to_glb_bytes()` | serialise |
+| `mesh.to_gltf()`, `mesh.to_glb(path)`, `mesh.to_glb_bytes()` | serialise; `to_glb` replaces the file whole |
 
 `to_gltf()` returns a glTF 2.0 document and nothing else — every key in it is one
 the specification defines. `primitive.material` indexes `mesh.materials`; a mesh

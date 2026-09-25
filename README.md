@@ -125,7 +125,9 @@ PyOpenGL, so it needs `pip install --pre 'opengl_extrusions[gle]'`.
 **glTF is the vocabulary, not the container.** Attributes are called `POSITION`,
 `NORMAL`, `TEXCOORD_0` and carry the types glTF gives them, but each is a plain
 NumPy array rather than an accessor into a blob, so reading a vertex is indexing
-rather than decoding. `to_gltf()` and `to_glb()` write the file form.
+rather than decoding. `to_gltf()` and `to_glb()` write the file form; `to_glb()`
+writes beside the path and renames over it, so a failed write leaves the file
+that was there.
 
 **The arrays are in the form a GL vertex buffer takes.** C-contiguous `float32`
 attributes and `uint32` indices are what `glBufferData` wants, so no conversion

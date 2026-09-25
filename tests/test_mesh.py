@@ -1,6 +1,7 @@
 """The mesh structure handed back to callers, and the checks it can run on itself."""
 
 import json
+import os
 import struct
 
 import numpy as np
@@ -350,6 +351,34 @@ class TestGLTF:
         path = tmp_path / 'square.glb'
         Mesh([quad()]).to_glb(str(path))
         assert path.read_bytes()[:4] == b'glTF'
+
+    def test_a_write_that_fails_leaves_the_file_that_was_there(self, tmp_path, monkeypatch):
+        path = tmp_path / 'square.glb'
+        path.write_bytes(b'the previous model')
+
+        def refuse(mesh):
+            raise MemoryError('no room for the document')
+
+        monkeypatch.setattr(Mesh, 'to_glb_bytes', refuse)
+        with pytest.raises(MemoryError):
+            Mesh([quad()]).to_glb(str(path))
+        assert path.read_bytes() == b'the previous model'
+        assert [entry.name for entry in tmp_path.iterdir()] == ['square.glb']
+
+    def test_a_rename_that_fails_leaves_no_partial_file(self, tmp_path, monkeypatch):
+        path = tmp_path / 'square.glb'
+
+        def refuse(source, target):
+            raise PermissionError(target)
+
+        monkeypatch.setattr(os, 'replace', refuse)
+        with pytest.raises(PermissionError):
+            Mesh([quad()]).to_glb(str(path))
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_file_in_a_missing_directory_is_an_error(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            Mesh([quad()]).to_glb(str(tmp_path / 'missing' / 'square.glb'))
 
     def test_an_empty_mesh_still_makes_a_valid_document(self):
         doc = Mesh([]).to_gltf()
