@@ -107,6 +107,8 @@ select = [
     "SIM",  # simplifications
     "C4",   # comprehensions
     "RUF",
+    "PGH003", "PGH004",  # a type: ignore or noqa names the codes it silences
+    "PLE0604", "PLE0605",  # __all__ is a list or tuple of strings
 ]
 ignore = [
     "E501",   # line too long: held by the formatter's line-length, above
