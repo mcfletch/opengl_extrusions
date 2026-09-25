@@ -36,7 +36,7 @@ SQUARE_NORMALS = np.array([(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)])
 def gle():
     """The capture harness, or a skip if GL and GLE are not both here."""
     try:
-        gle_capture._require_gl()
+        gle_capture.require_gl()
     except gle_capture.GLEUnavailable as reason:
         pytest.skip('GLE is not available: %s' % reason)
     return gle_capture

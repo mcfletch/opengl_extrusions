@@ -204,10 +204,8 @@ class TestTheMeshStaysAMesh:
 
 def boundary_cycle(mesh):
     """The mesh's outside edge, walked with the mesh on its left."""
-    following = {}
-    for (u, v), triangle in mesh._edge.items():
-        if mesh._tri[triangle] is not None and (v, u) not in mesh._edge:
-            following[u] = v
+    edges = {(int(u), int(v)) for a, b, c in mesh.triangles for u, v in ((a, b), (b, c), (c, a))}
+    following = {u: v for u, v in edges if (v, u) not in edges}
     if not following:
         return []
     start = min(following)

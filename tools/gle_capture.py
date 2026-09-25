@@ -109,7 +109,7 @@ class Capture:
         return float(0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1).sum())
 
 
-def _require_gl():
+def require_gl():
     """Import the GL machinery, or say clearly what is missing."""
     try:
         from OpenGL import GL, GLE  # noqa: PLC0415 the optional gle extra
@@ -131,7 +131,7 @@ class _Context:
         self.window = None
 
     def __enter__(self):
-        GL, GLE, glfw = _require_gl()
+        GL, GLE, glfw = require_gl()
         if not glfw.init():
             raise GLEUnavailable('glfw.init() failed: no display or no GL driver')
         glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
@@ -146,7 +146,7 @@ class _Context:
         return GL, GLE
 
     def __exit__(self, *exc) -> None:
-        _, _, glfw = _require_gl()
+        _, _, glfw = require_gl()
         if self.window is not None:
             glfw.destroy_window(self.window)
         glfw.terminate()
@@ -339,7 +339,7 @@ def capture_extrusion(
     automatic texture-coordinate generation on, which is what makes the captured
     texture coordinates worth reading.
     """
-    _, GLE, _ = _require_gl()
+    _, GLE, _ = require_gl()
 
     def draw():
         if texture_mode is not None:
@@ -373,7 +373,7 @@ def capture_extrusion(
 
 def capture_polycylinder(path, radius=1.0, join='angle', cap=True, sides=20) -> Capture:
     """``glePolyCylinder``: a circular tube along a polyline."""
-    _, GLE, _ = _require_gl()
+    _, GLE, _ = require_gl()
 
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, join, cap, True, 'edge'))
@@ -388,7 +388,7 @@ def capture_polycylinder(path, radius=1.0, join='angle', cap=True, sides=20) -> 
 
 def capture_polycone(path, radii, join='angle', cap=True, sides=20) -> Capture:
     """``glePolyCone``: a tube whose radius changes at each path point."""
-    _, GLE, _ = _require_gl()
+    _, GLE, _ = require_gl()
 
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, join, cap, True, 'edge'))
@@ -421,7 +421,7 @@ def capture_lathe(
     puts the contour's y along the axis of rotation and its x radially outward
     -- the r-z reading this library uses. See SPEC-GLE-GEOMETRY §9.
     """
-    _, GLE, _ = _require_gl()
+    _, GLE, _ = require_gl()
 
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, 'angle', cap, closed, 'edge'))
@@ -470,7 +470,7 @@ def capture_spiral(
     cap=True,
 ) -> Capture:
     """``gleSpiral``: a contour swept around the z axis, translated."""
-    _, GLE, _ = _require_gl()
+    _, GLE, _ = require_gl()
 
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, 'angle', cap, closed, 'edge'))
@@ -516,7 +516,7 @@ def capture_screw(
     cap=True,
 ) -> Capture:
     """``gleScrew``: a contour swept along z while turning."""
-    _, GLE, _ = _require_gl()
+    _, GLE, _ = require_gl()
 
     def draw():
         GLE.gleSetJoinStyle(_join_style(GLE, 'angle', cap, closed, 'edge'))
