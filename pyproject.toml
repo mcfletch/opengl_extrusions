@@ -115,6 +115,11 @@ select = [
     "RUF",
     "PGH003", "PGH004",  # a type: ignore or noqa names the codes it silences
     "PLE0604", "PLE0605",  # __all__ is a list or tuple of strings
+    # An error is neither swallowed silently nor logged without its traceback
+    "S110", "S112", "TRY400",
+    "DTZ",  # a datetime says which timezone it is in
+    # No exec, eval, pickle load, tar extractall or urlopen of an unchecked URL
+    "S102", "S202", "S301", "S307", "S310",
 ]
 ignore = [
     "E501",   # line too long: held by the formatter's line-length, above
