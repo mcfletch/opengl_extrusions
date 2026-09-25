@@ -21,7 +21,9 @@ class build_ext(_build_ext):
     def run(self):
         try:
             super().run()
-        except Exception as error:  # pragma: no cover - toolchain
+        # Any failure of the toolchain leaves the pure predicates, as the
+        # module docstring says, and the warning names the error.
+        except Exception as error:  # noqa: BLE001 an optional build  # pragma: no cover - toolchain
             self.warn(
                 'the optional accelerator did not build (%s); the pure '
                 'Python predicates will be used instead' % (error,)
@@ -30,7 +32,9 @@ class build_ext(_build_ext):
     def build_extension(self, ext):
         try:
             super().build_extension(ext)
-        except Exception as error:  # pragma: no cover - toolchain
+        # Any failure of the toolchain leaves the pure predicates, as the
+        # module docstring says, and the warning names the error.
+        except Exception as error:  # noqa: BLE001 an optional build  # pragma: no cover - toolchain
             self.warn(
                 '%s did not build (%s); the pure Python predicates will '
                 'be used instead' % (ext.name, error)
