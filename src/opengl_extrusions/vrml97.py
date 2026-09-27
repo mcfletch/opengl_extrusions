@@ -279,14 +279,14 @@ def _caps(
     Which way a cap faces is the product of three independent choices, so it is
     written as a product of three signs rather than as a chain of conditions:
 
-    ==========  ===========================================================
-    ``at_end``  the two ends of a sweep face opposite ways along the spine
-    ``ccw``     the field that says which side of the surface is the front
-    ``outward`` whether the swept sides face out, which is decided by the
-                cross-section's own winding -- so a shape whose outline was
-                given the other way round comes out inside-out as a whole,
-                rather than inside-out in patches
-    ==========  ===========================================================
+    ===========  ==========================================================
+    ``at_end``   the two ends of a sweep face opposite ways along the spine
+    ``ccw``      the field that says which side of the surface is the front
+    ``outward``  whether the swept sides face out, which is decided by the
+                 cross-section's own winding -- so a shape whose outline was
+                 given the other way round comes out inside-out as a whole,
+                 rather than inside-out in patches
+    ===========  ==========================================================
 
     The same sign settles both halves of "which way it faces": positive keeps
     the tessellator's counter-clockwise winding and the spine direction, and

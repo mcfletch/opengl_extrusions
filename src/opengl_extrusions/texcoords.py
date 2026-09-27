@@ -21,13 +21,13 @@ spherical one on a swept ball joint. Each is built from one of four inputs:
 
 and one of three projections:
 
-===========  ====================================  ==========================
+===========  ====================================  ============================
 projection   u                                     v
-===========  ====================================  ==========================
+===========  ====================================  ============================
 ``flat``     the input's x                         distance along the path
-``cyl``      3/4 - atan2(y, x) / 2pi               distance along the path
-``sph``      3/4 - atan2(y, x) / 2pi               1 - arccos(z / |p|) / pi
-===========  ====================================  ==========================
+``cyl``      ``3/4 - atan2(y, x) / 2pi``           distance along the path
+``sph``      ``3/4 - atan2(y, x) / 2pi``           ``1 - arccos(z / |p|) / pi``
+===========  ====================================  ============================
 
 The coordinates are read in the **segment's own frame**, where the contour lies
 in the x-y plane and the path runs along -z -- so ``z`` is the negative of the
