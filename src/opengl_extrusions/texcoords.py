@@ -79,7 +79,7 @@ def _decode(mode: str) -> tuple[bool, bool, str]:
 
 
 def seam_uv(mode: str, ring_uv: np.ndarray) -> np.ndarray:
-    """The coordinate a closed ring's first vertex has again at its end
+    """The coordinate a closed ring's first vertex has again at its end.
 
     A generated mode's own value for that vertex; in an angular mode (the
     ``cyl`` and ``sph`` ones) moved by a whole turn in u, to the side the ring

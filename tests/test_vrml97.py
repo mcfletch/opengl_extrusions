@@ -173,7 +173,7 @@ class TestCreaseAngle:
     def test_a_half_turn_smooths_everything(self):
         """Nothing on a closed section bends by more than pi, so every edge goes,
         and each of the section's points is left with one vertex per spine
-        point -- the first two, as the seam carries s at 0 and at 1."""
+        point, and the first point has two, at s 0 and s 1."""
         assert self._capsule(np.pi).vertex_count == (self.SIDES + 1) * 2
 
     def test_an_angle_between_smooths_only_the_shallow_edges(self):

@@ -137,18 +137,19 @@ with `caps=False` and tessellate the outline yourself.
 
 These formulae were established by measuring what GLE emits, not by reading its
 source — see [GLE-PARITY.md](GLE-PARITY.md) and
-[SPEC-GLE-GEOMETRY.md](../specs/SPEC-GLE-GEOMETRY.md). Two things to know:
+[SPEC-GLE-GEOMETRY.md](../specs/SPEC-GLE-GEOMETRY.md). Three things to know:
 
-- **u may fall outside 0..1.** The angular modes start in [0.25, 1.25) at the
+- u may fall outside 0..1 - the angular modes start in [0.25, 1.25) at the
   contour's first vertex, which is where GLE puts them, and run on round the
   ring from there; `GL_REPEAT` handles it, and shifting the range would move
   the mapping relative to GLE's.
-- **A textured closed contour has its seam vertex twice**, as GLE does: at the
+- A textured closed contour has its seam vertex twice - as GLE does, at the
   first point's coordinate and at the one the contour closes at (1 under
   `normalized`, the perimeter under `arc_length`, a turn on in the angular
-  modes), so a texture runs on across the seam. An untextured sweep shares
-  that vertex between the quads either side.
-- **A textured closed path ends where it starts, a whole length on.** The strip
+  modes), so a texture runs on across the seam. That is one more vertex per
+  ring: 9 for an 8-sided contour. An untextured sweep shares the vertex
+  between the quads either side.
+- A textured closed path ends where it starts, a whole length on - the strip
   closing the loop runs to the first ring again, at v of 1 under `normalized`
   and the loop's length (closing segment included) under `arc_length`, so the
   texture runs on to its end rather than back across the surface.

@@ -42,7 +42,7 @@ documentation and from black-box measurement instead.
 | `TUBE_NORM_EDGE` | `normals='edge'` | Equivalent | |
 | `TUBE_NORM_PATH_EDGE` | `normals='path_edge'` | Equivalent | Both average the normals a shared ring carries. Not covered by the parity test, which compares positions: the feedback buffer records where a vertex was drawn, not which way it faced |
 | `gleSetNumSides` | `sides=` | Exact | Per call rather than global (SPEC §8) |
-| The twelve `gleTextureMode` modes | `texture='vertex_cyl'` etc. | Equivalent | All twelve implemented, formulae measured from GLE; a closed contour's seam vertex is emitted twice, as GLE emits it |
+| The twelve `gleTextureMode` modes | `texture='vertex_cyl'` etc. | Equivalent | All twelve implemented, formulae measured from GLE. The parity test compares every vertex: the flat modes agree exactly, the angular ones modulo whole turns in u. A closed contour's seam vertex is its first point, emitted twice a turn apart, in both. Contour normals are made unit length here and used as given by GLE, so the normal modes agree for unit normals |
 | — | `frames='rmf'`, splines, closed paths, tangents, LOD, colliders | New | GLE has no equivalent |
 
 ## The deliberate differences

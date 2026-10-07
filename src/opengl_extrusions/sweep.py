@@ -918,7 +918,7 @@ def _station_uv(
 
 
 def _seamed(rows: np.ndarray, seam: bool) -> np.ndarray:
-    """`rows` with the first repeated at the end, where the ring has a seam vertex"""
+    """`rows` with the first repeated at the end, where the ring has a seam vertex."""
     return np.concatenate([rows, rows[:1]]) if seam else rows
 
 
@@ -940,7 +940,7 @@ def _face_normals(corners: np.ndarray) -> np.ndarray:
 
 
 def _contour_parameter(ring: np.ndarray, closed_contour: bool, texture: str | None) -> np.ndarray:
-    """Texture coordinate around the contour, by arc length
+    """Texture coordinate around the contour, by arc length.
 
     One per point, and for a closed contour one more: where it closes, at its
     first point again.

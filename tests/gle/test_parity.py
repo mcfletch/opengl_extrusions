@@ -211,6 +211,86 @@ class TestScrew:
         assert ours.primitives[0].surface_area() == pytest.approx(captured.surface_area(), rel=2e-2)
 
 
+#: An irregular closed contour, so no two points share an angle or a normal.
+PENTAGON = np.array([(0.9, -0.3), (1.2, 0.8), (-0.4, 1.1), (-1.0, -0.2), (0.1, -0.9)])
+
+
+def unit_vertex_normals(contour):
+    """Each point's outward normal: the mean of its two edges', unit length."""
+    edges = np.roll(contour, -1, axis=0) - contour
+    outward = np.column_stack([edges[:, 1], -edges[:, 0]])
+    outward /= np.linalg.norm(outward, axis=1)[:, None]
+    normals = outward + np.roll(outward, 1, axis=0)
+    return normals / np.linalg.norm(normals, axis=1)[:, None]
+
+
+def texcoords_by_position(positions, texcoords, angular):
+    """Each vertex position's texture coordinates, sorted, u taken modulo a
+    turn in an angular mode"""
+    found: dict[tuple, list] = {}
+    for position, (u, v) in zip(np.round(positions, 3) + 0.0, texcoords, strict=True):
+        if angular:
+            u = float(u) % 1.0
+        found.setdefault(tuple(position), []).append((float(u), float(v)))
+    return {key: sorted(values) for key, values in found.items()}
+
+
+class TestTextureCoordinates:
+    """The generated modes against GLE's own generation, point by point.
+
+    Our positions are GLE's mirrored in x (GLE-PARITY.md item 2); each mode
+    reads the contour in its own frame, so the same contour gets the same
+    coordinates at mirrored places. In the angular modes u agrees modulo
+    whole turns.
+    """
+
+    PATH = np.array([(0.0, 0.0, 3.0), (0.0, 0.0, 1.0), (0.0, 0.0, -1.0), (0.0, 0.0, -3.0)])
+
+    def _drawn(self, gle, mode):
+        """(positions, texcoords) as GLE draws the pentagon, then as we do,
+        ours mirrored into GLE's frame"""
+        normals = unit_vertex_normals(PENTAGON)
+        captured = gle.capture_extrusion(
+            PENTAGON, normals, self.PATH, join='raw', cap=False, closed=True,
+            normal_mode='edge', texture_mode=mode,
+        )
+        ours = extrude(
+            PENTAGON, [(0, 0, 1), (0, 0, -1)], contour_normals=normals, join='raw',
+            caps=False, up=(0, 1, 0), normals='edge', texture=mode,
+        ).primitives[0]
+        return (
+            (captured.positions, captured.texcoords),
+            (ours.positions * (-1.0, 1.0, 1.0), ours.texcoords),
+        )
+
+    @pytest.mark.parametrize('mode', sorted(gle_capture.TEXTURE_MODES))
+    def test_each_point_gets_gles_coordinates(self, gle, mode):
+        angular = not mode.endswith('flat')
+        theirs, mine = (
+            texcoords_by_position(positions, texcoords, angular)
+            for positions, texcoords in self._drawn(gle, mode)
+        )
+        assert sorted(theirs) == sorted(mine)
+        for position, expected in theirs.items():
+            got = mine[position]
+            assert len(set(got)) <= len(set(expected))
+            for u, v in set(got):
+                assert any(
+                    min(abs(u - eu), 1.0 - abs(u - eu)) < 1e-3 and abs(v - ev) < 1e-3
+                    for eu, ev in expected
+                ), (position, got, expected)
+
+    @pytest.mark.parametrize('mode', ['vertex_cyl', 'normal_sph', 'vertex_model_cyl'])
+    def test_the_seam_is_at_the_first_point_a_turn_apart(self, gle, mode):
+        for positions, texcoords in self._drawn(gle, mode):
+            found = texcoords_by_position(positions, texcoords, angular=False)
+            seams = {key: values for key, values in found.items() if len({u for u, _ in values}) > 1}
+            assert {key[:2] for key in seams} == {tuple(PENTAGON[0])}
+            for values in seams.values():
+                us = sorted({round(u, 3) for u, _ in values})
+                assert us[-1] - us[0] == pytest.approx(1.0, abs=1e-3)
+
+
 class TestHarness:
     def test_the_capture_recovers_normals(self, gle):
         path = np.array([(0.0, 0.0, 3.0), (0.0, 0.0, 1.0), (0.0, 0.0, -1.0), (0.0, 0.0, -3.0)])

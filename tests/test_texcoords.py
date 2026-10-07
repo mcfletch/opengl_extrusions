@@ -186,7 +186,8 @@ class TestTheSeam:
         assert seam == {tuple(np.round(p, 6)) for p in primitive.positions[at_start]}
 
     def test_an_untextured_sweep_shares_the_seam(self):
-        textured = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0)).primitives[0]
+        textured = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0),
+                           texture='normalized').primitives[0]
         plain = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0), texture=None).primitives[0]
         assert textured.vertex_count == plain.vertex_count + 2
 
