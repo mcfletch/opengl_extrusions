@@ -139,13 +139,15 @@ These formulae were established by measuring what GLE emits, not by reading its
 source — see [GLE-PARITY.md](GLE-PARITY.md) and
 [SPEC-GLE-GEOMETRY.md](../specs/SPEC-GLE-GEOMETRY.md). Two things to know:
 
-- **u may fall outside 0..1.** The angular modes land in [0.25, 1.25), which is
-  where GLE puts them; `GL_REPEAT` handles it, and shifting the range would move
+- **u may fall outside 0..1.** The angular modes start in [0.25, 1.25) at the
+  contour's first vertex, which is where GLE puts them, and run on round the
+  ring from there; `GL_REPEAT` handles it, and shifting the range would move
   the mapping relative to GLE's.
-- **The seam is a step, not a wrap.** GLE emits the contour's seam vertex twice,
-  at u=0 and u=1, so a texture crosses it smoothly. Here that vertex is shared
-  between the quads either side and carries one coordinate, so u steps back
-  across the seam. Use a parameter mode where that matters.
+- **A textured closed contour has its seam vertex twice**, as GLE does: at the
+  first point's coordinate and at the one the contour closes at (1 under
+  `normalized`, the perimeter under `arc_length`, a turn on in the angular
+  modes), so a texture runs on across the seam. An untextured sweep shares
+  that vertex between the quads either side.
 
 ### Contours
 

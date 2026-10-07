@@ -42,7 +42,7 @@ documentation and from black-box measurement instead.
 | `TUBE_NORM_EDGE` | `normals='edge'` | Equivalent | |
 | `TUBE_NORM_PATH_EDGE` | `normals='path_edge'` | Equivalent | Both average the normals a shared ring carries. Not covered by the parity test, which compares positions: the feedback buffer records where a vertex was drawn, not which way it faced |
 | `gleSetNumSides` | `sides=` | Exact | Per call rather than global (SPEC §8) |
-| The twelve `gleTextureMode` modes | `texture='vertex_cyl'` etc. | Equivalent | All twelve implemented, formulae measured from GLE; the seam differs, below |
+| The twelve `gleTextureMode` modes | `texture='vertex_cyl'` etc. | Equivalent | All twelve implemented, formulae measured from GLE; a closed contour's seam vertex is emitted twice, as GLE emits it |
 | — | `frames='rmf'`, splines, closed paths, tangents, LOD, colliders | New | GLE has no equivalent |
 
 ## The deliberate differences
@@ -88,22 +88,7 @@ GLE's angle join stretches without limit, and its own manual warns about what a
 shallow corner does. Here `miter_limit` (default 4) bounds the stretch, and past
 it the corner bevels instead. Pass a very large value for GLE's behaviour.
 
-### 5. The texture seam
-
-All twelve of GLE's generation modes are implemented, and their formulae were
-measured from GLE itself rather than inferred: `vertex_flat` and `vertex_sph`
-reproduce its output vertex for vertex. Two modes beyond them, `normalized` and
-`arc_length`, describe the sweep's own parameterisation, which is usually what a
-modern material wants.
-
-One difference remains, in the angular modes on a closed contour. GLE emits the
-seam vertex **twice**, at u=0 and at u=1, so a texture crosses the seam smoothly.
-Here that vertex is shared between the quads either side and carries a single
-coordinate, so u steps back across the seam instead. Duplicating it would mean a
-vertex layout that depends on the texture mode; for now, use a parameter mode
-where a seamless angular wrap matters.
-
-### 6. Parameters are per call
+### 5. Parameters are per call
 
 GLE keeps the join style, the side count and the texture mode in global state,
 which its own manual notes is shared between threads (SPEC §8). Every parameter

@@ -374,11 +374,10 @@ class TestTextureCoordinates:
         different scale of the same one."""
         ring = circle(1.0, 16)
         p = extrude(ring, [(0, 0, 0), (0, 0, 2)], texture='arc_length', caps=False).primitives[0]
-        # u is distance travelled around the contour, so it runs from zero to
-        # the perimeter less the closing edge -- not round to the perimeter,
-        # which would put the seam's two coordinates at the same place.
+        # u is distance travelled around the contour, from zero to the whole
+        # perimeter at the seam vertex, which repeats the first point.
         edges = np.linalg.norm(np.roll(ring, -1, axis=0) - ring, axis=1)
-        assert p.texcoords[:, 0].max() == pytest.approx(edges.sum() - edges[-1], rel=1e-6)
+        assert p.texcoords[:, 0].max() == pytest.approx(edges.sum(), rel=1e-6)
         assert p.texcoords[:, 1].max() == pytest.approx(2.0, abs=1e-6)
 
     def test_an_unknown_texture_mode_is_refused(self):

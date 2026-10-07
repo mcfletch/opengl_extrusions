@@ -59,6 +59,7 @@ from opengl_extrusions.tessellate import tessellate
 from opengl_extrusions.texcoords import (
     GENERATED_MODES,
     generated_uv,
+    seam_uv,
 )
 from opengl_extrusions.texcoords import (
     TEXTURE_MODES as _TEXTURE_MODES,
@@ -722,6 +723,10 @@ def build_from_stations(
         )
 
     contour_u = _contour_parameter(ring, closed_contour, texture)
+    # A textured closed contour has its first vertex again at the end of each
+    # ring, carrying the coordinate the contour closes at, so the last edge runs
+    # on to the end of the texture rather than back across it to the start.
+    seam = closed_contour and texture is not None
     # Once for the whole sweep rather than once per station: the generated
     # texture modes each ask for the same contour's normals at every ring, and
     # for a long path that recomputation is the most expensive part of texturing.
@@ -756,14 +761,18 @@ def build_from_stations(
             block_normals = np.repeat(face, 4, axis=0)
             block_uv = None
             if texture is not None:
-                first_uv = _station_uv(first, texture, contour_u, ring, ring_normals)
-                second_uv = _station_uv(second, texture, contour_u, ring, ring_normals)
+                first_uv = _station_uv(first, texture, contour_u, ring, ring_normals, seam)
+                second_uv = _station_uv(second, texture, contour_u, ring, ring_normals, seam)
+                uv_first = np.arange(edges)
+                uv_second = uv_first + 1
+                if reverse_winding:
+                    uv_first, uv_second = uv_second, uv_first
                 block_uv = np.stack(
                     [
-                        first_uv[quad_first],
-                        first_uv[quad_second],
-                        second_uv[quad_second],
-                        second_uv[quad_first],
+                        first_uv[uv_first],
+                        first_uv[uv_second],
+                        second_uv[uv_second],
+                        second_uv[uv_first],
                     ],
                     axis=1,
                 ).reshape(-1, 2)
@@ -776,31 +785,33 @@ def build_from_stations(
                 pair = np.stack([first.color, first.color, second.color, second.color])
                 block_colors = np.tile(pair, (edges, 1))
         else:
-            block = np.concatenate([first.points, second.points])
-            block_normals = np.concatenate([first.leaving(), second.normals])
+            width = count + 1 if seam else count
+            block = np.concatenate([_seamed(first.points, seam), _seamed(second.points, seam)])
+            block_normals = np.concatenate(
+                [_seamed(first.leaving(), seam), _seamed(second.normals, seam)]
+            )
             block_uv = None
             if texture is not None:
                 block_uv = np.concatenate(
                     [
-                        _station_uv(first, texture, contour_u, ring, ring_normals),
-                        _station_uv(second, texture, contour_u, ring, ring_normals),
+                        _station_uv(first, texture, contour_u, ring, ring_normals, seam),
+                        _station_uv(second, texture, contour_u, ring, ring_normals, seam),
                     ]
                 )
+            near, far = quad_first, quad_second
+            if seam:
+                near = np.arange(edges)
+                far = near + 1
+                if reverse_winding:
+                    near, far = far, near
             block_indices = np.stack(
-                [
-                    quad_first,
-                    quad_second,
-                    quad_second + count,
-                    quad_first,
-                    quad_second + count,
-                    quad_first + count,
-                ],
+                [near, far, far + width, near, far + width, near + width],
                 axis=1,
             ).ravel()
             block_colors = None
             if first.color is not None and second.color is not None:
                 block_colors = np.concatenate(
-                    [np.tile(first.color, (count, 1)), np.tile(second.color, (count, 1))]
+                    [np.tile(first.color, (width, 1)), np.tile(second.color, (width, 1))]
                 )
 
         positions.append(block)
@@ -876,13 +887,16 @@ def _station_uv(
     contour_u: np.ndarray,
     ring: np.ndarray,
     ring_normals: np.ndarray | None,
+    seam: bool = False,
 ) -> np.ndarray:
     """One ring's texture coordinates, in whichever mode was asked for.
 
     The parameter modes read the contour's own arc length and the distance
     travelled; the generated modes read the placed contour in the segment's
     frame, which is why a station keeps it, and the contour's own normals, which
-    the caller computes once for the whole sweep and passes in.
+    the caller computes once for the whole sweep and passes in. With `seam`,
+    one row more, for the ring's first vertex repeated at its end
+    (:func:`~opengl_extrusions.texcoords.seam_uv`).
     """
     if texture in GENERATED_MODES:
         placed = station.placed_xy if station.placed_xy is not None else ring
@@ -893,8 +907,14 @@ def _station_uv(
         )
         if ring_normals is None:  # pragma: no cover - the caller supplies them
             ring_normals = contour_normals(ring, closed=True)
-        return generated_uv(texture, placed, placed_normals, ring, ring_normals, station.arc_length)
+        uv = generated_uv(texture, placed, placed_normals, ring, ring_normals, station.arc_length)
+        return np.vstack([uv, seam_uv(texture, uv)]) if seam else uv
     return np.column_stack([contour_u, np.full(len(contour_u), station.arc_length)])
+
+
+def _seamed(rows: np.ndarray, seam: bool) -> np.ndarray:
+    """`rows` with the first repeated at the end, where the ring has a seam vertex"""
+    return np.concatenate([rows, rows[:1]]) if seam else rows
 
 
 def _strip_pairs(stations: list[Station], closed_path: bool) -> list[tuple[int, int]]:
@@ -915,7 +935,11 @@ def _face_normals(corners: np.ndarray) -> np.ndarray:
 
 
 def _contour_parameter(ring: np.ndarray, closed_contour: bool, texture: str | None) -> np.ndarray:
-    """Texture coordinate around the contour, by arc length."""
+    """Texture coordinate around the contour, by arc length
+
+    One per point, and for a closed contour one more: where it closes, at its
+    first point again.
+    """
     count = len(ring)
     if texture is None:
         return np.zeros(count)
@@ -925,7 +949,9 @@ def _contour_parameter(ring: np.ndarray, closed_contour: bool, texture: str | No
         else np.diff(ring, axis=0, append=ring[-1:])
     )
     lengths = np.linalg.norm(edges, axis=1)
-    running = np.concatenate([[0.0], np.cumsum(lengths)[:-1]])
+    running = np.concatenate([[0.0], np.cumsum(lengths)])
+    if not closed_contour:
+        running = running[:-1]
     total = float(lengths.sum())
     if texture == 'normalized' and total > _TINY:
         return running / total

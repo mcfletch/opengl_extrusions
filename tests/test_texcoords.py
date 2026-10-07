@@ -8,7 +8,7 @@ measurements, so a change to the formulae has to disagree with GLE to fail here.
 import numpy as np
 import pytest
 
-from opengl_extrusions import circle, extrude
+from opengl_extrusions import circle, extrude, lathe, screw, spiral
 from opengl_extrusions.texcoords import (
     GENERATED_MODES,
     PARAMETER_MODES,
@@ -118,12 +118,12 @@ class TestThroughASweep:
         assert set(TEXTURE_MODES) == set(PARAMETER_MODES) | set(GENERATED_MODES)
 
     def test_an_angular_u_covers_one_turn_and_may_sit_outside_zero_to_one(self):
-        """``0.75 - angle/2pi`` lands in [0.25, 1.25), which is deliberate.
+        """``0.75 - angle/2pi`` from the first vertex, run on round the ring.
 
         A texture coordinate outside 0..1 is not a problem -- that is what
         ``GL_REPEAT`` is for -- and shifting the range would move the mapping
-        relative to GLE's. What matters is that one turn round the contour
-        covers one unit of u, which it does.
+        relative to GLE's. One turn round the contour, seam vertex included,
+        covers one unit of u.
         """
         uv = (
             extrude(circle(1.0, 8), SEGMENT, texture='vertex_cyl', caps=False, up=(0, 1, 0))
@@ -131,21 +131,59 @@ class TestThroughASweep:
             .texcoords
         )
         span = float(uv[:, 0].max() - uv[:, 0].min())
-        assert 0.8 < span < 1.0, 'one turn of the contour is one unit of u'
+        assert span == pytest.approx(1.0), 'one turn of the contour is one unit of u'
 
-    def test_the_seam_is_a_step_rather_than_a_wrap(self):
-        """A known difference from GLE, pinned so it cannot change unnoticed.
+    def test_the_angular_seam_carries_a_second_coordinate(self):
+        """As GLE does: the seam vertex twice, a turn apart, so u runs on across it"""
+        primitive = extrude(
+            circle(1.0, 8), SEGMENT, texture='vertex_cyl', caps=False, up=(0, 1, 0)
+        ).primitives[0]
+        assert len(np.unique(np.round(primitive.texcoords[:, 0], 6))) == 9
+        assert widest_u_step(primitive) < 0.25
 
-        GLE emits the seam vertex twice -- once at u=0 and once at u=1 -- so a
-        texture crosses it smoothly. Here the ring's vertices are shared between
-        the quads either side, so u steps back across the seam instead. See
-        docs/GLE-PARITY.md.
-        """
-        uv = (
-            extrude(circle(1.0, 8), SEGMENT, texture='vertex_cyl', caps=False, up=(0, 1, 0))
-            .primitives[0]
-            .texcoords
-        )
-        # exactly as many distinct u values as there are contour points: no
-        # vertex was duplicated to carry a second coordinate.
-        assert len(np.unique(np.round(uv[:, 0], 6))) == 8
+
+def widest_u_step(primitive):
+    """The largest change in u across one triangle"""
+    u = primitive.texcoords[:, 0][primitive.triangles]
+    return float((u.max(axis=1) - u.min(axis=1)).max())
+
+
+#: A square contour, closed by its sweep rather than by a repeated point.
+SQUARE = np.array([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+
+
+class TestTheSeam:
+    """A closed contour's last edge runs on to the end of the texture, not back to its start"""
+
+    @pytest.mark.parametrize('normals', ['edge', 'facet'])
+    @pytest.mark.parametrize('make', [
+        lambda **named: extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0), **named),
+        lambda **named: lathe(SQUARE, start_radius=1.5, sides=12, caps=False, **named),
+        lambda **named: spiral(SQUARE, start_radius=3, delta_z=1.5, sweep_angle=4 * np.pi,
+                               sides=12, caps=False, **named),
+        lambda **named: screw(SQUARE, start_z=-1, end_z=1, twist=2 * np.pi, caps=False,
+                              **named),
+    ], ids=['extrude', 'lathe', 'spiral', 'screw'])
+    def test_no_triangle_spans_the_texture_back(self, make, normals):
+        primitive = make(normals=normals, texture='normalized').primitives[0]
+        assert primitive.texcoords[:, 0].max() == pytest.approx(1.0)
+        assert widest_u_step(primitive) <= 0.25 + 1e-6
+
+    def test_arc_length_closes_at_the_perimeter(self):
+        primitive = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0),
+                            texture='arc_length').primitives[0]
+        assert primitive.texcoords[:, 0].max() == pytest.approx(4.0)
+        assert widest_u_step(primitive) <= 1.0 + 1e-6
+
+    def test_the_seam_vertex_sits_on_the_first(self):
+        primitive = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0),
+                            texture='normalized').primitives[0]
+        at_end = np.isclose(primitive.texcoords[:, 0], 1.0)
+        at_start = primitive.texcoords[:, 0] == 0.0
+        seam = {tuple(np.round(p, 6)) for p in primitive.positions[at_end]}
+        assert seam == {tuple(np.round(p, 6)) for p in primitive.positions[at_start]}
+
+    def test_an_untextured_sweep_shares_the_seam(self):
+        textured = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0)).primitives[0]
+        plain = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0), texture=None).primitives[0]
+        assert textured.vertex_count == plain.vertex_count + 2

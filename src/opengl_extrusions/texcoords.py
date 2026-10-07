@@ -78,6 +78,19 @@ def _decode(mode: str) -> tuple[bool, bool, str]:
     return use_normal, model, projection
 
 
+def seam_uv(mode: str, ring_uv: np.ndarray) -> np.ndarray:
+    """The coordinate a closed ring's first vertex has again at its end
+
+    A generated mode's own value for that vertex; in an angular mode (the
+    ``cyl`` and ``sph`` ones) moved by a whole turn in u, to the side the ring
+    ends on, so the last edge runs on across the seam rather than back.
+    """
+    first = np.array(ring_uv[0], dtype=np.float64)
+    if _decode(mode)[2] in ('cyl', 'sph'):
+        first[0] += round(float(ring_uv[-1][0] - first[0]))
+    return first
+
+
 def generated_uv(
     mode: str,
     placed_xy: np.ndarray,
@@ -109,8 +122,10 @@ def generated_uv(
         return np.column_stack([x, np.full(len(x), float(arc_length))])
 
     # Three quarters minus the angle: the direction GLE's own generation runs,
-    # measured from its zero rather than from the x axis.
-    u = 0.75 - np.arctan2(y, x) / (2.0 * np.pi)
+    # measured from its zero rather than from the x axis. Unwrapped along the
+    # ring, so u runs on from the first vertex's value rather than jumping a
+    # turn where the angle passes behind the axis.
+    u = np.unwrap(0.75 - np.arctan2(y, x) / (2.0 * np.pi), period=1.0)
     if projection == 'cyl':
         return np.column_stack([u, np.full(len(x), float(arc_length))])
 
