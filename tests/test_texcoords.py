@@ -9,12 +9,14 @@ import numpy as np
 import pytest
 
 from opengl_extrusions import circle, extrude, lathe, screw, spiral
+from opengl_extrusions.sweep import sweep
 from opengl_extrusions.texcoords import (
     GENERATED_MODES,
     PARAMETER_MODES,
     TEXTURE_MODES,
     generated_uv,
 )
+from opengl_extrusions.vrml97 import vrml97_extrusion
 
 #: The contour and normals the GLE measurements were taken with.
 CONTOUR = np.array([(1.0, 0.0), (2.0, 0.0), (2.0, 0.5), (1.0, 0.5)])
@@ -187,3 +189,38 @@ class TestTheSeam:
         textured = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0)).primitives[0]
         plain = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0), texture=None).primitives[0]
         assert textured.vertex_count == plain.vertex_count + 2
+
+
+def widest_v_step(primitive):
+    """The largest change in v across one triangle"""
+    v = primitive.texcoords[:, 1][primitive.triangles]
+    return float((v.max(axis=1) - v.min(axis=1)).max())
+
+
+#: A square loop, closed by the sweep rather than by a repeated point.
+LOOP = [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (4.0, 0.0, -4.0), (0.0, 0.0, -4.0)]
+
+
+class TestTheSeamAlongAPath:
+    """A closed path's last segment runs on to the end of the texture, not back to its start"""
+
+    @pytest.mark.parametrize('normals', ['edge', 'facet'])
+    def test_a_closed_sweep(self, normals):
+        primitive = sweep(circle(0.5, 8), LOOP, closed_path=True, caps=False,
+                          normals=normals, texture='normalized').primitives[0]
+        assert primitive.texcoords[:, 1].max() == pytest.approx(1.0)
+        assert widest_v_step(primitive) <= 0.25 + 1e-6
+
+    def test_arc_length_closes_at_the_loops_length(self):
+        primitive = sweep(circle(0.5, 8), LOOP, closed_path=True, caps=False,
+                          texture='arc_length').primitives[0]
+        assert primitive.texcoords[:, 1].max() == pytest.approx(16.0)
+
+    def test_a_closed_vrml97_spine(self):
+        """ISO/IEC 14772-1 6.18: v runs 0 to 1 from the first listed spine point to
+        the last, which on a closed spine is the first again"""
+        spine = LOOP + LOOP[:1]
+        primitive = vrml97_extrusion(spine=spine, crease_angle=0.0).primitives[0]
+        assert np.unique(np.round(primitive.texcoords[:, 1], 6)).tolist() == [
+            0.0, 0.25, 0.5, 0.75, 1.0]
+        assert widest_v_step(primitive) <= 0.25 + 1e-6

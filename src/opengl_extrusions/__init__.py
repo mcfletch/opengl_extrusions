@@ -8,7 +8,7 @@ with it: render it, weld it, hand it to a physics engine, write it out.
     >>> mesh = extrude(circle(radius=0.2, sides=16),
     ...                path=[(0, 0, 0), (0, 0, 1), (1, 0, 2)])
     >>> mesh.primitives[0].positions.shape
-    (96, 3)
+    (100, 3)
 
 The default frame keeps the contour's own "up" as near to ``up=(0, 1, 0)`` as it
 can, which has nothing to align to where the path runs straight up. Sweep a

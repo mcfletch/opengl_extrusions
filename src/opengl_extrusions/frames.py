@@ -85,8 +85,11 @@ class PathFrames:
 
     @property
     def total_length(self) -> float:
-        """Length of the path."""
-        return float(self.arc_length[-1]) if len(self.arc_length) else 0.0
+        """Length of the path; a closed path's includes the segment back to its start."""
+        if not len(self.arc_length):
+            return 0.0
+        closing = float(np.linalg.norm(self.origin[0] - self.origin[-1])) if self.closed else 0.0
+        return float(self.arc_length[-1]) + closing
 
     def place(self, contour: np.ndarray, index: int) -> np.ndarray:
         """Put a contour into the frame at ``index``, returning ``(N, 3)`` points."""

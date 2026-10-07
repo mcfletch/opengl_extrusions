@@ -47,7 +47,7 @@ closed by caps if asked for.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -740,6 +740,11 @@ def build_from_stations(
 
     for a, b in strips:
         first, second = stations[a], stations[b]
+        if b < a and texture is not None:
+            # The strip closing the path ends at the first ring again, a whole
+            # path's length along, so the texture runs on to its end rather
+            # than back across the surface to its start.
+            second = replace(second, arc_length=total_length)
         strip_facet = (normals == 'facet') or first.facet_next
         quad_first = np.arange(edges)
         quad_second = (quad_first + 1) % count

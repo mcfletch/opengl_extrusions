@@ -203,6 +203,10 @@ def vrml97_extrusion(
         flat = np.divide(flat, lengths, out=np.zeros_like(flat), where=lengths > _TINY)
         normals = flat[:, 0:1] * basis_x + flat[:, 1:2] * basis_z
         stations.append(Station(points, normals, travelled, connect=closed_spine or i < steps - 1))
+    if closed_spine:
+        # SPEC-VRML97-EXTRUSION §9: v is 1 at the last listed spine point,
+        # which on a closed spine is the first point again.
+        travelled += float(np.linalg.norm(path[0] - path[-1]))
 
     # SPEC-VRML97-EXTRUSION §7: this node's normals are generated from the
     # faces, with ``creaseAngle`` deciding which edges between them are

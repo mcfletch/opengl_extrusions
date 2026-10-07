@@ -87,6 +87,13 @@ spine point or one value per spine point. Every `scale` component is positive.
 cross-section at its spine point. Cited by `vrml97._broadcast` and
 `vrml97._axis_angle`.
 
+**§9 — Texture coordinates.** The generated coordinates run from 0 to 1 in u
+along the cross-section, 0 at its first point and 1 at its last, and from 0 to
+1 in v along the spine, 0 at the first listed spine point and 1 at the last
+listed one. On a closed spine the last listed point repeats the first (§4), so
+v is 1 where the surface comes back round to the first point. Cited by
+`vrml97.vrml97_extrusion`.
+
 ## What this library does not implement
 
 The `Extrusion` node's `solid` field selects back-face culling, which is a

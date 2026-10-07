@@ -148,6 +148,10 @@ source — see [GLE-PARITY.md](GLE-PARITY.md) and
   `normalized`, the perimeter under `arc_length`, a turn on in the angular
   modes), so a texture runs on across the seam. An untextured sweep shares
   that vertex between the quads either side.
+- **A textured closed path ends where it starts, a whole length on.** The strip
+  closing the loop runs to the first ring again, at v of 1 under `normalized`
+  and the loop's length (closing segment included) under `arc_length`, so the
+  texture runs on to its end rather than back across the surface.
 
 ### Contours
 
