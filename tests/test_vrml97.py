@@ -97,6 +97,25 @@ class TestVRML97Extrusion:
         mesh = vrml97_extrusion(cross_section=section, spine=spine).welded()
         assert mesh.primitives[0].is_watertight()
 
+    @pytest.mark.parametrize('field, width, first, other', [
+        ('scale', 2, (1.0, 1.0), (0.5, 2.0)),
+        ('orientation', 4, (0.0, 1.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.7)),
+    ])
+    def test_a_closed_spine_takes_an_entry_for_each_listed_point(self, field, width, first, other):
+        """The last listed point repeats the first, and so does its entry's
+        place: the entry given for it is not a station of its own"""
+        angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
+        spine = np.column_stack([2 * np.cos(angles), np.zeros(8), 2 * np.sin(angles)])
+        spine = np.vstack([spine, spine[:1]])
+        section = np.vstack([circle(0.3, 6), circle(0.3, 6)[:1]])
+        distinct = [first] + [other] * 7
+        listed = vrml97_extrusion(cross_section=section, spine=spine, **{field: distinct + [other]})
+        expected = vrml97_extrusion(cross_section=section, spine=spine, **{field: distinct})
+        assert np.allclose(listed.primitives[0].positions, expected.primitives[0].positions)
+        assert listed.welded().primitives[0].is_watertight()
+        with pytest.raises(ValueError):
+            vrml97_extrusion(cross_section=section, spine=spine, **{field: distinct[:6]})
+
     def test_an_unrepeated_cross_section_leaves_a_seam(self):
         """VRML's rule: without the repeated point the outline is open."""
         angles = np.linspace(0, 2 * np.pi, 16, endpoint=False)
@@ -119,6 +138,15 @@ class TestVRML97Extrusion:
             cross_section=[(-1, 0), (0, 0.5), (1, 0)], spine=[(0, 0, 0), (0, 3, 0)]
         )
         assert mesh.triangle_count == 4
+
+    def test_a_two_point_cross_section_makes_a_ribbon(self):
+        mesh = vrml97_extrusion(
+            cross_section=[(-1, 0), (1, 0)], spine=[(0, 0, 0), (0, 1, 0), (0, 2, 0)]
+        )
+        assert mesh.triangle_count == 4
+        p = mesh.primitives[0].positions
+        assert np.allclose(np.abs(p[:, 0]), 1.0) and np.allclose(p[:, 2], 0.0)
+        assert sorted(set(np.round(p[:, 1], 6))) == [0.0, 1.0, 2.0]
 
     def test_a_crease_angle_smooths_the_surface(self):
         section = np.vstack([circle(1.0, 16), circle(1.0, 16)[:1]])
@@ -223,9 +251,13 @@ class TestCreaseAngle:
         with pytest.raises(ValueError):
             vrml97_extrusion(spine=[(0, 0, 0)])
 
-    def test_a_cross_section_of_two_points_is_refused(self):
+    def test_a_cross_section_of_one_point_is_refused(self):
         with pytest.raises(ValueError):
-            vrml97_extrusion(cross_section=[(0, 0), (1, 1)])
+            vrml97_extrusion(cross_section=[(0, 0)])
+
+    def test_a_closed_cross_section_of_two_distinct_points_is_refused(self):
+        with pytest.raises(ValueError):
+            vrml97_extrusion(cross_section=[(0, 0), (1, 1), (0, 0)])
 
     def test_a_non_positive_scale_is_refused(self):
         with pytest.raises(ValueError):

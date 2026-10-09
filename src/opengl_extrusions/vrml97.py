@@ -100,7 +100,7 @@ def vrml97_extrusion(
 
     :param cross_section: ``(N, 2)`` points in the SCP's x-z plane. A
         cross-section whose last point repeats its first is *closed*, and the
-        surface has no seam there.
+        surface has no seam there. An open one of two points sweeps a ribbon.
 
         **Wind it clockwise.** In the x-z plane the outward-facing order is
         clockwise, which is why this specification's own default cross-section
@@ -117,9 +117,12 @@ def vrml97_extrusion(
     :param spine: ``(M, 3)`` points to sweep along. A spine whose last point
         repeats its first is *closed*, and the sweep joins up.
     :param scale: ``(M, 2)`` or ``(2,)`` -- the cross-section's size at each
-        spine point, in x and z. Every component must be positive.
+        spine point, in x and z. Every component must be positive. On a closed
+        spine the entry for the repeated last point may be given or left out;
+        the first point's entry is the one used there.
     :param orientation: ``(M, 4)`` or ``(4,)`` axis-angle rotations
-        ``(x, y, z, radians)``, applied to the cross-section at each spine point.
+        ``(x, y, z, radians)``, applied to the cross-section at each spine
+        point, counted as ``scale`` is.
     :param begin_cap: close the start of the sweep. Ignored for a closed spine,
         which has no start.
     :param end_cap: close the end of the sweep.
@@ -134,8 +137,9 @@ def vrml97_extrusion(
 
     :returns: a :class:`~opengl_extrusions.mesh.Mesh`.
 
-    :raises ValueError: for a spine of fewer than two points, a cross-section of
-        fewer than three, non-finite values, a non-positive scale, or a negative
+    :raises ValueError: for a spine of fewer than two points, an open
+        cross-section of fewer than two or a closed one of fewer than three
+        distinct points, non-finite values, a non-positive scale, or a negative
         crease angle.
 
     The node's defaults are a unit square swept one unit up::
@@ -168,16 +172,25 @@ def vrml97_extrusion(
     if closed_spine:
         path = path[:-1]
     closed_section = len(section) > 2 and bool(np.array_equal(section[0], section[-1]))
+    # SPEC-VRML97-EXTRUSION §10: two points sweep a ribbon; a closed outline
+    # needs three to enclose anything.
     if closed_section:
         section = section[:-1]
-    if len(section) < 3:
-        raise ValueError('a cross-section needs at least 3 distinct points, got %d' % len(section))
+        if len(section) < 3:
+            raise ValueError(
+                'a closed cross-section needs at least 3 distinct points, got %d' % len(section)
+            )
+    elif len(section) < 2:
+        raise ValueError('a cross-section needs at least 2 points, got %d' % len(section))
 
     steps = len(path)
-    scales = _broadcast(scale, steps, 2, (1.0, 1.0), 'scale')
+    # SPEC-VRML97-EXTRUSION §8: an entry per spine point as listed, and on a
+    # closed spine the last listed point is the first (§4).
+    listed = steps + 1 if closed_spine else steps
+    scales = _broadcast(scale, steps, 2, (1.0, 1.0), 'scale', listed)
     if (scales <= 0).any():
         raise ValueError('every scale component must be positive')
-    rotations = _broadcast(orientation, steps, 4, (0.0, 0.0, 1.0, 0.0), 'orientation')
+    rotations = _broadcast(orientation, steps, 4, (0.0, 0.0, 1.0, 0.0), 'orientation', listed)
 
     x_axis, y_axis, z_axis = spine_frames(path, closed_spine)
     # VRML reads a cross-section as (x, z) in a plane whose sweep runs along +y,
@@ -334,8 +347,14 @@ def _broadcast(
     width: int,
     default: Sequence[float],
     what: str,
+    listed: int | None = None,
 ) -> np.ndarray:
-    """VRML's rule: one value applies to every point, or there is one each."""
+    """VRML's rule: one value applies to every point, or there is one each.
+
+    `steps` is the stations swept; `listed` is the spine's points as given,
+    one more than `steps` on a closed spine. A list of `listed` entries loses
+    its last, which belongs to the point that repeats the first.
+    """
     if value is None:
         return np.tile(np.asarray(default, dtype=np.float64), (steps, 1))
     array = np.asarray(value, dtype=np.float64)
@@ -347,9 +366,12 @@ def _broadcast(
         )
     if len(array) == 1:
         return np.tile(array, (steps, 1))
+    if listed is not None and len(array) == listed:
+        return array[:steps]
     if len(array) != steps:
+        counts = '%d' % steps if listed in (None, steps) else '%d or %d' % (listed, steps)
         raise ValueError(
-            '%s must have 1 entry or one per spine point (%d), got %d' % (what, steps, len(array))
+            '%s must have 1 entry or one per spine point (%s), got %d' % (what, counts, len(array))
         )
     return array
 

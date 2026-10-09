@@ -308,6 +308,8 @@ The cross-section is read in the **x-z** plane, as the specification writes it,
 and is oriented by the specification's Spine-aligned Cross-section Plane — axes
 taken from the spine's own neighbours rather than from any reference direction.
 A `cross_section` or `spine` whose last point repeats its first is *closed*.
+An open cross-section of two points sweeps a ribbon; a closed one needs three
+distinct points.
 
 **Wind the cross-section clockwise.** In the x-z plane the outward order is
 clockwise — which is why VRML97's own default cross-section is clockwise there,
@@ -324,8 +326,8 @@ inside out — consistently, sides and caps together.
 
 | Parameter | Default |
 |---|---|
-| `scale` | one `(x, y)` for all, or one per spine point; every component positive |
-| `orientation` | axis-angle `(x, y, z, radians)`, one or one per point |
+| `scale` | one `(x, y)` for all, or one per spine point; every component positive. On a closed spine the repeated last point's entry may be given or left out |
+| `orientation` | axis-angle `(x, y, z, radians)`, one or one per point, counted as `scale` is |
 | `begin_cap`, `end_cap` | `True`; ignored for a closed spine, which has no ends |
 | `ccw` | `True` — which way the surface faces |
 | `crease_angle` | `0.0` — see below |

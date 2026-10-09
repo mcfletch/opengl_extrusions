@@ -82,10 +82,21 @@ The threshold itself is applied by
 [`weld.smoothing_groups`](../src/opengl_extrusions/weld.py).
 
 **§8 — `scale` and `orientation`.** Each is either one value applying to every
-spine point or one value per spine point. Every `scale` component is positive.
-`orientation` is an axis-angle rotation `(x, y, z, radians)` applied to the
-cross-section at its spine point. Cited by `vrml97._broadcast` and
-`vrml97._axis_angle`.
+spine point or one value per spine point, counting the spine's points as
+listed: on a closed spine that includes the last point, which repeats the
+first (§4). Every `scale` component is positive. `orientation` is an
+axis-angle rotation `(x, y, z, radians)` applied to the cross-section at its
+spine point. Cited by `vrml97._broadcast` and `vrml97._axis_angle`.
+
+This library also takes, on a closed spine, a list one shorter that leaves
+the repeated point's entry out; the first point's entry is used there in
+either case.
+
+**§10 — How many cross-section points.** The specification sets no minimum.
+An open cross-section of two points sweeps a strip with no inside; this
+library takes two or more for an open cross-section and three distinct points
+for a closed one, which is the fewest that enclose anything. Cited by
+`vrml97.vrml97_extrusion`.
 
 **§9 — Texture coordinates.** The generated coordinates run from 0 to 1 in u
 along the cross-section, 0 at its first point and 1 at its last, and from 0 to
