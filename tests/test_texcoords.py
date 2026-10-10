@@ -158,36 +158,51 @@ class TestTheSeam:
     """A closed contour's last edge runs on to the end of the texture, not back to its start"""
 
     @pytest.mark.parametrize('normals', ['edge', 'facet'])
-    @pytest.mark.parametrize('make', [
-        lambda **named: extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0), **named),
-        lambda **named: lathe(SQUARE, start_radius=1.5, sides=12, caps=False, **named),
-        lambda **named: spiral(SQUARE, start_radius=3, delta_z=1.5, sweep_angle=4 * np.pi,
-                               sides=12, caps=False, **named),
-        lambda **named: screw(SQUARE, start_z=-1, end_z=1, twist=2 * np.pi, caps=False,
-                              **named),
-    ], ids=['extrude', 'lathe', 'spiral', 'screw'])
+    @pytest.mark.parametrize(
+        'make',
+        [
+            lambda **named: extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0), **named),
+            lambda **named: lathe(SQUARE, start_radius=1.5, sides=12, caps=False, **named),
+            lambda **named: spiral(
+                SQUARE,
+                start_radius=3,
+                delta_z=1.5,
+                sweep_angle=4 * np.pi,
+                sides=12,
+                caps=False,
+                **named,
+            ),
+            lambda **named: screw(
+                SQUARE, start_z=-1, end_z=1, twist=2 * np.pi, caps=False, **named
+            ),
+        ],
+        ids=['extrude', 'lathe', 'spiral', 'screw'],
+    )
     def test_no_triangle_spans_the_texture_back(self, make, normals):
         primitive = make(normals=normals, texture='normalized').primitives[0]
         assert primitive.texcoords[:, 0].max() == pytest.approx(1.0)
         assert widest_u_step(primitive) <= 0.25 + 1e-6
 
     def test_arc_length_closes_at_the_perimeter(self):
-        primitive = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0),
-                            texture='arc_length').primitives[0]
+        primitive = extrude(
+            SQUARE, SEGMENT, caps=False, up=(0, 1, 0), texture='arc_length'
+        ).primitives[0]
         assert primitive.texcoords[:, 0].max() == pytest.approx(4.0)
         assert widest_u_step(primitive) <= 1.0 + 1e-6
 
     def test_the_seam_vertex_sits_on_the_first(self):
-        primitive = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0),
-                            texture='normalized').primitives[0]
+        primitive = extrude(
+            SQUARE, SEGMENT, caps=False, up=(0, 1, 0), texture='normalized'
+        ).primitives[0]
         at_end = np.isclose(primitive.texcoords[:, 0], 1.0)
         at_start = primitive.texcoords[:, 0] == 0.0
         seam = {tuple(np.round(p, 6)) for p in primitive.positions[at_end]}
         assert seam == {tuple(np.round(p, 6)) for p in primitive.positions[at_start]}
 
     def test_an_untextured_sweep_shares_the_seam(self):
-        textured = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0),
-                           texture='normalized').primitives[0]
+        textured = extrude(
+            SQUARE, SEGMENT, caps=False, up=(0, 1, 0), texture='normalized'
+        ).primitives[0]
         plain = extrude(SQUARE, SEGMENT, caps=False, up=(0, 1, 0), texture=None).primitives[0]
         assert textured.vertex_count == plain.vertex_count + 2
 
@@ -207,14 +222,21 @@ class TestTheSeamAlongAPath:
 
     @pytest.mark.parametrize('normals', ['edge', 'facet'])
     def test_a_closed_sweep(self, normals):
-        primitive = sweep(circle(0.5, 8), LOOP, closed_path=True, caps=False,
-                          normals=normals, texture='normalized').primitives[0]
+        primitive = sweep(
+            circle(0.5, 8),
+            LOOP,
+            closed_path=True,
+            caps=False,
+            normals=normals,
+            texture='normalized',
+        ).primitives[0]
         assert primitive.texcoords[:, 1].max() == pytest.approx(1.0)
         assert widest_v_step(primitive) <= 0.25 + 1e-6
 
     def test_arc_length_closes_at_the_loops_length(self):
-        primitive = sweep(circle(0.5, 8), LOOP, closed_path=True, caps=False,
-                          texture='arc_length').primitives[0]
+        primitive = sweep(
+            circle(0.5, 8), LOOP, closed_path=True, caps=False, texture='arc_length'
+        ).primitives[0]
         assert primitive.texcoords[:, 1].max() == pytest.approx(16.0)
 
     def test_a_closed_vrml97_spine(self):
@@ -223,5 +245,10 @@ class TestTheSeamAlongAPath:
         spine = LOOP + LOOP[:1]
         primitive = vrml97_extrusion(spine=spine, crease_angle=0.0).primitives[0]
         assert np.unique(np.round(primitive.texcoords[:, 1], 6)).tolist() == [
-            0.0, 0.25, 0.5, 0.75, 1.0]
+            0.0,
+            0.25,
+            0.5,
+            0.75,
+            1.0,
+        ]
         assert widest_v_step(primitive) <= 0.25 + 1e-6

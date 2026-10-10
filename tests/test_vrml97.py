@@ -97,10 +97,13 @@ class TestVRML97Extrusion:
         mesh = vrml97_extrusion(cross_section=section, spine=spine).welded()
         assert mesh.primitives[0].is_watertight()
 
-    @pytest.mark.parametrize('field, width, first, other', [
-        ('scale', 2, (1.0, 1.0), (0.5, 2.0)),
-        ('orientation', 4, (0.0, 1.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.7)),
-    ])
+    @pytest.mark.parametrize(
+        'field, width, first, other',
+        [
+            ('scale', 2, (1.0, 1.0), (0.5, 2.0)),
+            ('orientation', 4, (0.0, 1.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.7)),
+        ],
+    )
     def test_a_closed_spine_takes_an_entry_for_each_listed_point(self, field, width, first, other):
         """The last listed point repeats the first, and so does its entry's
         place: the entry given for it is not a station of its own"""
