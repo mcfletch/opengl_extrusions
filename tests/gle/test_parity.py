@@ -251,12 +251,24 @@ class TestTextureCoordinates:
         ours mirrored into GLE's frame"""
         normals = unit_vertex_normals(PENTAGON)
         captured = gle.capture_extrusion(
-            PENTAGON, normals, self.PATH, join='raw', cap=False, closed=True,
-            normal_mode='edge', texture_mode=mode,
+            PENTAGON,
+            normals,
+            self.PATH,
+            join='raw',
+            cap=False,
+            closed=True,
+            normal_mode='edge',
+            texture_mode=mode,
         )
         ours = extrude(
-            PENTAGON, [(0, 0, 1), (0, 0, -1)], contour_normals=normals, join='raw',
-            caps=False, up=(0, 1, 0), normals='edge', texture=mode,
+            PENTAGON,
+            [(0, 0, 1), (0, 0, -1)],
+            contour_normals=normals,
+            join='raw',
+            caps=False,
+            up=(0, 1, 0),
+            normals='edge',
+            texture=mode,
         ).primitives[0]
         return (
             (captured.positions, captured.texcoords),
@@ -284,7 +296,9 @@ class TestTextureCoordinates:
     def test_the_seam_is_at_the_first_point_a_turn_apart(self, gle, mode):
         for positions, texcoords in self._drawn(gle, mode):
             found = texcoords_by_position(positions, texcoords, angular=False)
-            seams = {key: values for key, values in found.items() if len({u for u, _ in values}) > 1}
+            seams = {
+                key: values for key, values in found.items() if len({u for u, _ in values}) > 1
+            }
             assert {key[:2] for key in seams} == {tuple(PENTAGON[0])}
             for values in seams.values():
                 us = sorted({round(u, 3) for u, _ in values})
