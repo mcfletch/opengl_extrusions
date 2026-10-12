@@ -221,8 +221,24 @@ def _rational(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Homogeneous numerator and denominator for one basis pair."""
     weighted = control * weights[:, :, None]
-    numerator = np.einsum('au,uvc,bv->abc', nu_basis, weighted, nv_basis)
-    denominator = np.einsum('au,uv,bv->ab', nu_basis, weights, nv_basis)
+    # One direction at a time: each product is a matrix multiply, where the
+    # three together are a loop over every sample and every control point.
+    numerator = np.tensordot(nu_basis, weighted, axes=(1, 0))
+    numerator = np.tensordot(numerator, nv_basis, axes=(1, 1)).transpose(0, 2, 1)
+    denominator = nu_basis @ weights @ nv_basis.T
+    return numerator, denominator
+
+
+def _rational_at(
+    control: np.ndarray,
+    weights: np.ndarray,
+    nu_basis: np.ndarray,
+    nv_basis: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Homogeneous numerator and denominator at paired basis rows, one a sample."""
+    weighted = control * weights[:, :, None]
+    numerator = np.einsum('nvc,nv->nc', np.tensordot(nu_basis, weighted, axes=(1, 0)), nv_basis)
+    denominator = np.einsum('nv,nv->n', nu_basis @ weights, nv_basis)
     return numerator, denominator
 
 
@@ -430,9 +446,7 @@ def surface_at(
         control, u_knots, v_knots, u_degree, v_degree, weights
     )
     nu_basis, nv_basis = _paired_basis(control, u_knots, v_knots, u_degree, v_degree, uv)
-    weighted = control * weights[:, :, None]
-    numerator = np.einsum('nu,uvc,nv->nc', nu_basis, weighted, nv_basis)
-    denominator = np.einsum('nu,uv,nv->n', nu_basis, weights, nv_basis)
+    numerator, denominator = _rational_at(control, weights, nu_basis, nv_basis)
     return numerator / denominator[:, None]
 
 
@@ -459,13 +473,9 @@ def normals_at(
     nu_basis, nv_basis = _paired_basis(control, u_knots, v_knots, u_degree, v_degree, pairs)
     nu_deriv = basis_derivatives(pairs[:, 0], u_knots, u_degree, control.shape[0])
     nv_deriv = basis_derivatives(pairs[:, 1], v_knots, v_degree, control.shape[1])
-    weighted = control * weights[:, :, None]
 
     def combine(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        return (
-            np.einsum('nu,uvc,nv->nc', a, weighted, b),
-            np.einsum('nu,uv,nv->n', a, weights, b),
-        )
+        return _rational_at(control, weights, a, b)
 
     numerator, denominator = combine(nu_basis, nv_basis)
     du_num, du_den = combine(nu_deriv, nv_basis)
