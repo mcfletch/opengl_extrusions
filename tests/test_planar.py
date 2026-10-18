@@ -8,6 +8,7 @@ and vertices sitting in the middle of somebody else's edge.
 import numpy as np
 import pytest
 
+from opengl_extrusions import planar
 from opengl_extrusions.planar import (
     PSLG,
     DegenerateContourError,
@@ -269,3 +270,36 @@ class TestBuildPSLG:
                 assert not segments_cross(
                     g.points[e[0]], g.points[e[1]], g.points[f[0]], g.points[f[1]]
                 )
+
+
+class TestTheCrossingSearch:
+    """Only segments whose bounding boxes overlap are compared."""
+
+    @staticmethod
+    def _star(n):
+        angles = np.arange(n) * 2 * np.pi / n
+        radii = 1.0 + 0.5 * (np.arange(n) % 2)
+        return np.column_stack((np.cos(angles) * radii, np.sin(angles) * radii))
+
+    def test_no_pair_apart_in_y_is_compared(self, monkeypatch):
+        compared = []
+        original = planar._split_pair  # noqa: SLF001 the pairs are counted at the function that compares them
+
+        def recording(s, t, directed, points, merger, splits):
+            spans = [
+                sorted((float(points[i][1]), float(points[j][1])))
+                for i, j in (directed[s], directed[t])
+            ]
+            compared.append(spans[0][0] <= spans[1][1] and spans[1][0] <= spans[0][1])
+            return original(s, t, directed, points, merger, splits)
+
+        monkeypatch.setattr(planar, '_split_pair', recording)
+        build_pslg([self._star(200)])
+        assert compared and all(compared)
+
+    def test_a_crossing_found_is_the_same_either_way(self):
+        """A star with one spike pulled across to the far side of itself."""
+        star = self._star(40)
+        star[7] = (-1.4, 0.3)
+        graph = build_pslg([star])
+        assert (len(graph.points), len(graph.edges)) == (42, 44)

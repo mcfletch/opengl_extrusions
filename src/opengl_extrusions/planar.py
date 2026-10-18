@@ -522,26 +522,24 @@ def _find_splits(directed: list[tuple[int, int]], merger: _VertexMerger) -> dict
     """Locate every point at which some segment has to be subdivided.
 
     Candidate pairs come from a sweep over x: segments are visited in order of
-    their left edge, and each is tested only against those still open at that
-    point. That turns the quadratic pair loop into something proportional to the
-    number of pairs that actually overlap.
+    their left edge, and each is compared only with those still open at that
+    point whose extent in y overlaps its own. Only pairs whose bounding boxes
+    overlap reach :func:`_split_pair`.
     """
     points = merger.points
-    order = sorted(
-        range(len(directed)),
-        key=lambda s: min(points[directed[s][0]][0], points[directed[s][1]][0]),
-    )
+    extents = []
+    for a, b in directed:
+        (ax, ay), (bx, by) = points[a].tolist(), points[b].tolist()
+        extents.append((min(ax, bx), max(ax, bx), min(ay, by), max(ay, by)))
+    order = sorted(range(len(directed)), key=lambda s: extents[s][0])
     splits: dict = {}
     active: list[int] = []
     for s in order:
-        a, b = directed[s]
-        pa, pb = points[a], points[b]
-        left = min(pa[0], pb[0])
-        active = [
-            t for t in active if max(points[directed[t][0]][0], points[directed[t][1]][0]) >= left
-        ]
+        left, _right, low, high = extents[s]
+        active = [t for t in active if extents[t][1] >= left]
         for t in active:
-            _split_pair(s, t, directed, points, merger, splits)
+            if extents[t][2] <= high and low <= extents[t][3]:
+                _split_pair(s, t, directed, points, merger, splits)
         active.append(s)
     return splits
 
@@ -554,15 +552,17 @@ def _split_pair(
     merger: _VertexMerger,
     splits: dict,
 ) -> None:
-    """Record the subdivisions two segments impose on each other."""
+    """Record the subdivisions two segments impose on each other.
+
+    :func:`_find_splits` calls this only for segments whose bounding boxes
+    overlap.
+    """
     a, b = directed[s]
     c, d = directed[t]
     # Sharing a vertex is a legal meeting and needs no split of its own, but a
     # segment's *far* endpoint may still lie inside its neighbour, so the tests
     # below run either way.
     pa, pb, pc, pd = points[a], points[b], points[c], points[d]
-    if min(pa[1], pb[1]) > max(pc[1], pd[1]) or min(pc[1], pd[1]) > max(pa[1], pb[1]):
-        return
     for index, p in ((c, pc), (d, pd)):
         if index not in (a, b) and _strictly_inside_segment(p, pa, pb):
             splits.setdefault(s, set()).add(index)
