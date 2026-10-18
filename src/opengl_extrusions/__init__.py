@@ -111,7 +111,7 @@ from opengl_extrusions.weld import averaged_normals, smoothing_groups
 
 #: The single definition of this package's version: ``pyproject.toml``
 #: reads it from here, and so does the release workflow.
-__version__ = '1.2.0'
+__version__ = '1.2.1a1'
 
 __all__ = [
     '__version__',
