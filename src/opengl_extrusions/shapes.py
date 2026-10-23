@@ -44,10 +44,16 @@ from typing import Any
 import numpy as np
 
 from opengl_extrusions.contours import circle
-from opengl_extrusions.contours import contour_normals as _contour_normals
 from opengl_extrusions.curves import helix
 from opengl_extrusions.mesh import Mesh, Primitive
-from opengl_extrusions.sweep import Station, SweepError, build_from_stations, sweep
+from opengl_extrusions.sweep import (
+    Station,
+    SweepError,
+    _as_contours,
+    _with_normals,
+    build_from_stations,
+    sweep,
+)
 from opengl_extrusions.tessellate import tessellate
 from opengl_extrusions.types import Colors, Contours, Points, Scalars, Vector
 
@@ -206,7 +212,8 @@ def lathe(
     """Sweep a contour around the z axis, keeping its plane radial.
 
     :param contour: ``(N, 2)`` points in the r-z plane: x is distance out from
-        the axis, added to the sweep radius; y is height.
+        the axis, added to the sweep radius; y is height. A last point that
+        repeats the first closes the contour and is dropped.
     :param start_radius: distance from the axis at ``start_angle``.
     :param delta_radius: change in that radius per full turn, so the sweep
         spirals outward or inward.
@@ -216,8 +223,8 @@ def lathe(
     :param sweep_angle: how far it goes, in radians. May exceed a full turn.
     :param sides: facets per full turn. The sweep is a polygon, and this is how
         many sides it has.
-    :param contour_normals_2d: outward normals for the contour, computed when
-        not given.
+    :param contour_normals_2d: outward normals, one per contour point once a
+        closing repeat is dropped; computed when not given.
     :param caps: ``'auto'`` (the default) caps the two cut ends unless the sweep
         closes on itself or the contour is open; ``True``/``False`` force it.
     :param mitre: whether to stretch each ring so consecutive facets meet
@@ -512,13 +519,13 @@ def _rotational(
     generator: str,
 ) -> Mesh:
     """Place a radial ring at each step around the axis, and strip them together."""
-    ring = np.asarray(contour, dtype=np.float64)
-    if ring.ndim != 2 or ring.shape[1] != 2:
-        raise ValueError('contour must be an (N, 2) array, got %r' % (ring.shape,))
-    if len(ring) < 3:
-        raise ValueError('a contour needs at least 3 points, got %d' % len(ring))
-    if not np.isfinite(ring).all():
-        raise ValueError('contour contains a non-finite coordinate')
+    shape = np.shape(contour)
+    if len(shape) != 2 or shape[1] != 2:
+        raise ValueError('contour must be an (N, 2) array, got %r' % (shape,))
+    # Read as `sweep` reads a contour: a repeated closing point dropped, and
+    # supplied normals held to one per remaining point.
+    (ring,) = _as_contours(np.asarray(contour, dtype=np.float64))
+    ((ring, ring_normals),) = _with_normals([ring], supplied_normals, closed_contour)
     if sides < 1:
         raise ValueError('sides must be at least 1, got %r' % (sides,))
     if mitre and sides < 3:
@@ -531,12 +538,6 @@ def _rotational(
             'a mitred sweep needs at least three facets per full turn, got %r; '
             'pass mitre=False for a stepped sweep of fewer' % (sides,)
         )
-    ring_normals = (
-        _contour_normals(ring, closed=closed_contour)
-        if supplied_normals is None
-        else np.asarray(supplied_normals, dtype=np.float64)
-    )
-
     turns = float(sweep_angle) / (2 * np.pi)
     steps = max(round(abs(turns) * sides), 1)
     angles = start_angle + np.linspace(0.0, float(sweep_angle), steps + 1)

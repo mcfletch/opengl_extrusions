@@ -112,6 +112,20 @@ class TestLathe:
         with pytest.raises(ValueError):
             lathe(SQUARE_SECTION, sides=0)
 
+    def test_a_contour_closed_by_a_repeated_point_is_accepted(self):
+        """The convention GLE's own examples use, with one normal per distinct point."""
+        closed = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
+        normals = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+        mesh = lathe(closed, contour_normals_2d=normals, start_radius=1.5, sides=48)
+        mesh.validate()
+        plain = lathe(closed[:-1], contour_normals_2d=normals, start_radius=1.5, sides=48)
+        assert mesh.primitives[0].vertex_count == plain.primitives[0].vertex_count
+        assert np.allclose(mesh.primitives[0].positions, plain.primitives[0].positions)
+
+    def test_mismatched_contour_normals_are_refused(self):
+        with pytest.raises(ValueError):
+            lathe(SQUARE_SECTION, contour_normals_2d=np.zeros((3, 2)))
+
 
 class TestSpiral:
     def test_a_flat_full_turn_matches_a_lathe(self):
